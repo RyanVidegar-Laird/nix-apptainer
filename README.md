@@ -6,11 +6,56 @@ Apptainer container image with a minimal NixOS system and single-user Nix for HP
 
 ### Install
 
-Download the `nix-apptainer` binary and `base-nixos.sif` from [GitHub Releases](https://github.com/hydrangea/nix-apptainer/releases), or build from source:
+Download the CLI binary and base SIF for your architecture from [GitHub Releases](https://github.com/RyanVidegar-Laird/nix-apptainer/releases):
+
+```bash
+# x86_64
+curl -LO https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download/nix-apptainer-x86_64-linux
+curl -LO https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download/base-nixos-x86_64-linux.sif
+chmod +x nix-apptainer-x86_64-linux
+mv nix-apptainer-x86_64-linux nix-apptainer
+
+# aarch64
+curl -LO https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download/nix-apptainer-aarch64-linux
+curl -LO https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download/base-nixos-aarch64-linux.sif
+chmod +x nix-apptainer-aarch64-linux
+mv nix-apptainer-aarch64-linux nix-apptainer
+```
+
+Or build from source:
 
 ```bash
 nix build .#cli -o cli-result    # static CLI binary
 nix build -o sif-result          # base SIF image
+```
+
+### Verify signatures
+
+Import the project signing key:
+
+```bash
+gpg --import signing-key.asc
+# or from a release:
+curl -sL https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download/signing-key.asc | gpg --import
+```
+
+Verify the CLI binary:
+
+```bash
+gpg --verify nix-apptainer-x86_64-linux.sig nix-apptainer-x86_64-linux
+```
+
+Verify the SIF image:
+
+```bash
+apptainer verify base-nixos-x86_64-linux.sif
+```
+
+Verify all checksums:
+
+```bash
+gpg --verify SHA256SUMS.sig SHA256SUMS
+sha256sum -c SHA256SUMS
 ```
 
 ### Set up (one-time)
