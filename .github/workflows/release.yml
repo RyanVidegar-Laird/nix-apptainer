@@ -43,25 +43,32 @@ jobs:
         run: nix build -o sif-result
 
       - name: Import GPG key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
-          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
           gpgconf --kill gpg-agent
 
       - name: Sign CLI binary
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
         run: |
           cp cli-result/bin/nix-apptainer nix-apptainer-${{ matrix.arch }}
-          echo "${{ secrets.GPG_PASSPHRASE }}" | \
+          echo "$GPG_PASSPHRASE" | \
             gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback \
-              --default-key "${{ secrets.GPG_KEY_ID }}" \
+              --default-key "$GPG_KEY_ID" \
               --detach-sign --armor \
               -o nix-apptainer-${{ matrix.arch }}.sig \
               nix-apptainer-${{ matrix.arch }}
 
       - name: Sign SIF image
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           cp sif-result base-nixos-${{ matrix.arch }}.sif
-          echo "${{ secrets.GPG_PASSPHRASE }}" | \
+          echo "$GPG_PASSPHRASE" | \
             apptainer sign \
               --keyidx 0 \
               base-nixos-${{ matrix.arch }}.sif
@@ -84,8 +91,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Import GPG key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
-          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
           gpgconf --kill gpg-agent
 
@@ -97,11 +106,14 @@ jobs:
 
       - name: Generate checksums and sign
         working-directory: artifacts
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
         run: |
           sha256sum nix-apptainer-* base-nixos-* > SHA256SUMS
-          echo "${{ secrets.GPG_PASSPHRASE }}" | \
+          echo "$GPG_PASSPHRASE" | \
             gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback \
-              --default-key "${{ secrets.GPG_KEY_ID }}" \
+              --default-key "$GPG_KEY_ID" \
               --detach-sign --armor \
               -o SHA256SUMS.sig SHA256SUMS
           cp "$GITHUB_WORKSPACE/signing-key.asc" .
