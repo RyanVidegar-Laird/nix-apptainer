@@ -12,6 +12,8 @@
       perSystem =
         { pkgs, system, ... }:
         let
+          version = "0.1.0";
+
           nixos = nixpkgs.lib.nixosSystem {
             inherit system;
             modules = [ ./nixos/configuration.nix ];
@@ -27,7 +29,7 @@
 
           cli = pkgs.pkgsStatic.rustPlatform.buildRustPackage {
             pname = "nix-apptainer";
-            version = "0.1.0";
+            inherit version;
             src = ./cli;
             cargoLock.lockFile = ./cli/Cargo.lock;
           };
