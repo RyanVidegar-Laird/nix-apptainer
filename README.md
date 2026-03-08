@@ -152,3 +152,7 @@ cargo run -- status      # run CLI from source
 - Nix with flakes enabled (for building)
 - Apptainer >= 1.1 (for running)
 - FUSE support on the host (`/dev/fuse` or `fusermount`)
+
+## License
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
