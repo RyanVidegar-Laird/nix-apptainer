@@ -1,0 +1,17 @@
+# Worktrees
+.worktrees/
+
+# Nix
+/.direnv
+result
+
+# Apptainer
+*.sif
+*.sqfs
+*.img
+
+# Editors
+.vscode
+
+# OS
+.DS_Store

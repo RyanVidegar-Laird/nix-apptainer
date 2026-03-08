@@ -1,0 +1,33 @@
+name: Release
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Build CLI
+        run: nix build .#cli -o cli-result
+      - name: Build SIF
+        run: nix build -o sif-result
+      - name: Prepare release assets
+        run: |
+          cp cli-result/bin/nix-apptainer nix-apptainer
+          cp sif-result base-nixos.sif
+          sha256sum nix-apptainer > nix-apptainer.sha256
+          sha256sum base-nixos.sif > base-nixos.sif.sha256
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            nix-apptainer
+            base-nixos.sif
+            nix-apptainer.sha256
+            base-nixos.sif.sha256
