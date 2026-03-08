@@ -5,29 +5,118 @@ on:
       - 'v*'
 
 jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64-linux
+            runner: ubuntu-latest
+          - arch: aarch64-linux
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Validate version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          FLAKE_VERSION=$(grep 'version = "' flake.nix | head -1 | sed 's/.*version = "//;s/".*//')
+          CARGO_VERSION=$(grep '^version = "' cli/Cargo.toml | sed 's/version = "//;s/".*//')
+          echo "Tag: $TAG_VERSION  Flake: $FLAKE_VERSION  Cargo: $CARGO_VERSION"
+          if [ "$TAG_VERSION" != "$FLAKE_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match flake.nix ($FLAKE_VERSION)"
+            exit 1
+          fi
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match Cargo.toml ($CARGO_VERSION)"
+            exit 1
+          fi
+
+      - name: Build CLI
+        run: nix build .#cli -o cli-result
+
+      - name: Build SIF
+        run: nix build -o sif-result
+
+      - name: Import GPG key
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent
+
+      - name: Sign CLI binary
+        run: |
+          cp cli-result/bin/nix-apptainer nix-apptainer-${{ matrix.arch }}
+          echo "${{ secrets.GPG_PASSPHRASE }}" | \
+            gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback \
+              --default-key "${{ secrets.GPG_KEY_ID }}" \
+              --detach-sign --armor \
+              -o nix-apptainer-${{ matrix.arch }}.sig \
+              nix-apptainer-${{ matrix.arch }}
+
+      - name: Sign SIF image
+        run: |
+          cp sif-result base-nixos-${{ matrix.arch }}.sif
+          echo "${{ secrets.GPG_PASSPHRASE }}" | \
+            apptainer sign \
+              --keyidx 0 \
+              base-nixos-${{ matrix.arch }}.sif
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.arch }}
+          path: |
+            nix-apptainer-${{ matrix.arch }}
+            nix-apptainer-${{ matrix.arch }}.sig
+            base-nixos-${{ matrix.arch }}.sif
+
   release:
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-      - name: Build CLI
-        run: nix build .#cli -o cli-result
-      - name: Build SIF
-        run: nix build -o sif-result
-      - name: Prepare release assets
+
+      - name: Import GPG key
         run: |
-          cp cli-result/bin/nix-apptainer nix-apptainer
-          cp sif-result base-nixos.sif
-          sha256sum nix-apptainer > nix-apptainer.sha256
-          sha256sum base-nixos.sif > base-nixos.sif.sha256
-      - name: Create Release
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums and sign
+        working-directory: artifacts
+        run: |
+          sha256sum nix-apptainer-* base-nixos-* > SHA256SUMS
+          echo "${{ secrets.GPG_PASSPHRASE }}" | \
+            gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback \
+              --default-key "${{ secrets.GPG_KEY_ID }}" \
+              --detach-sign --armor \
+              -o SHA256SUMS.sig SHA256SUMS
+          cp "$GITHUB_WORKSPACE/signing-key.asc" .
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          generate_release_notes: true
           files: |
-            nix-apptainer
-            base-nixos.sif
-            nix-apptainer.sha256
-            base-nixos.sif.sha256
+            artifacts/nix-apptainer-x86_64-linux
+            artifacts/nix-apptainer-x86_64-linux.sig
+            artifacts/nix-apptainer-aarch64-linux
+            artifacts/nix-apptainer-aarch64-linux.sig
+            artifacts/base-nixos-x86_64-linux.sif
+            artifacts/base-nixos-aarch64-linux.sif
+            artifacts/SHA256SUMS
+            artifacts/SHA256SUMS.sig
+            artifacts/signing-key.asc
