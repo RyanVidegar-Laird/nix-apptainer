@@ -1,0 +1,93 @@
+use crate::checks;
+use crate::config::Config;
+use crate::paths::AppPaths;
+use crate::state::State;
+
+pub fn run() -> anyhow::Result<()> {
+    let paths = AppPaths::resolve()?;
+    let config = Config::load(&paths.config_file)?;
+    let state = State::load(&paths.state_file)?;
+
+    // SIF info
+    let sif_info = if paths.sif_path.exists() {
+        let size = std::fs::metadata(&paths.sif_path)?.len();
+        let size_str = human_size(size);
+        let version = if state.sif_version.is_empty() {
+            "unknown".to_string()
+        } else {
+            state.sif_version.clone()
+        };
+        format!("{version} ({size_str})")
+    } else {
+        "not installed".to_string()
+    };
+
+    // Overlay info
+    let overlay_info = if paths.overlay_path.exists() {
+        let size = std::fs::metadata(&paths.overlay_path)?.len();
+        let size_str = human_size(size);
+        let sparse = human_size(config.overlay.size_mb * 1024 * 1024);
+        format!("{size_str} used / {sparse} sparse")
+    } else {
+        "not created".to_string()
+    };
+
+    // Apptainer
+    let apptainer_info = {
+        let r = checks::find_apptainer();
+        if r.passed { r.message } else { "not found".to_string() }
+    };
+
+    // GPU
+    let gpu_info = if config.enter.gpu.is_empty() {
+        "none".to_string()
+    } else {
+        config.enter.gpu.clone()
+    };
+
+    // Bind mounts
+    let bind_info = if config.enter.bind.is_empty() {
+        "none".to_string()
+    } else {
+        config.enter.bind.join(", ")
+    };
+
+    println!("Base image:  {sif_info}");
+    println!("Overlay:     {overlay_info}");
+    println!("Data dir:    {}", paths.data_dir.display());
+    println!("Config:      {}", paths.config_file.display());
+    println!("Apptainer:   {apptainer_info}");
+    println!("GPU config:  {gpu_info}");
+    println!("Bind mounts: {bind_info}");
+
+    Ok(())
+}
+
+fn human_size(bytes: u64) -> String {
+    const GB: u64 = 1_073_741_824;
+    const MB: u64 = 1_048_576;
+    const KB: u64 = 1024;
+    if bytes >= GB {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_human_size() {
+        assert_eq!(human_size(0), "0 B");
+        assert_eq!(human_size(1024), "1.0 KB");
+        assert_eq!(human_size(1_048_576), "1.0 MB");
+        assert_eq!(human_size(1_073_741_824), "1.0 GB");
+        assert_eq!(human_size(1_610_612_736), "1.5 GB");
+    }
+}

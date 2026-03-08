@@ -1,0 +1,90 @@
+# lib/build-sif.nix
+#
+# Converts a sandbox directory into an Apptainer .sif image.
+# Assembles a rootfs staging directory, packs it with mksquashfs,
+# then wraps it in SIF format using apptainer sif commands.
+{
+  runCommand,
+  squashfsTools,
+  apptainer,
+  lib,
+  coreutils,
+}:
+
+{
+  sandbox,
+  name ? "nix-apptainer",
+  comp ? "zstd -Xcompression-level 19",
+}:
+
+let
+  # Build the squashfs from the sandbox rootfs.
+  # Start with a staging directory and copy sandbox contents into it
+  # so that the rootfs sits at the squashfs filesystem root.
+  squashfs =
+    runCommand "${name}-squashfs"
+      {
+        nativeBuildInputs = [
+          squashfsTools
+          coreutils
+        ];
+        __structuredAttrs = true;
+        unsafeDiscardReferences.out = true;
+      }
+      ''
+        # Stage sandbox contents so mksquashfs places the rootfs at the
+        # squashfs root. When mksquashfs receives a single directory, it
+        # unwraps it and makes the directory's contents the fs root.
+        mkdir rootfs
+        cp -a ${sandbox}/. rootfs/
+
+        # Make directories writable so fuse-overlayfs can create upper-layer
+        # entries. Without this, the overlay can't write to /nix/var, /nix/store,
+        # etc. because nix store outputs are read-only (mode 555).
+        #
+        # Security note: this makes /nix/store writable in the overlay layer,
+        # matching the trust model of single-user Nix (no daemon, user owns
+        # the store). The base squashfs remains immutable. Nix's content-
+        # addressing and signature verification still protect against
+        # substituter-level tampering. A user could modify their own overlay's
+        # store paths, but only affects their own environment.
+        chmod -R u+w rootfs/nix/var rootfs/nix/store rootfs/home \
+          rootfs/tmp rootfs/var rootfs/root rootfs/etc
+
+        mksquashfs rootfs $out \
+          -no-hardlinks \
+          -all-root \
+          -b 1048576 \
+          -root-mode 0755 \
+          -comp ${comp} \
+          -processors $NIX_BUILD_CORES \
+          -noappend
+      '';
+in
+runCommand "${name}.sif"
+  {
+    nativeBuildInputs = [ apptainer ];
+    __structuredAttrs = true;
+    unsafeDiscardReferences.out = true;
+  }
+  ''
+    export APPTAINER_TMPDIR=$(mktemp -d)
+    export APPTAINER_CACHEDIR=$(mktemp -d)
+    export HOME=$(mktemp -d)
+
+    # Create empty SIF container
+    apptainer sif new "$out"
+
+    # Add the squashfs as a primary system partition
+    # --datatype 4 = Partition data
+    # --parttype 2 = System partition (PrimSys)
+    # --partfs 1 = Squash filesystem
+    # --partarch 2 = amd64
+    apptainer sif add \
+      --datatype 4 \
+      --parttype 2 \
+      --partfs 1 \
+      --partarch 2 \
+      "$out" \
+      ${squashfs}
+  ''
