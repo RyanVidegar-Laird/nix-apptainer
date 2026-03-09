@@ -12,7 +12,8 @@ runCommand "nix-apptainer-test-shellcheck"
     shellcheck --severity=warning \
       ${scripts}/setup.sh \
       ${scripts}/enter.sh \
-      ${scripts}/entrypoint.sh
+      ${scripts}/entrypoint.sh \
+      ${scripts}/sign-release.sh
     echo "All scripts passed shellcheck."
     touch $out
   ''

@@ -9,6 +9,7 @@
   apptainer,
   lib,
   coreutils,
+  stdenv,
 }:
 
 {
@@ -18,6 +19,13 @@
 }:
 
 let
+  # Map Nix system arch to SIF partarch values
+  # 2 = amd64, 4 = arm64
+  sifPartArch =
+    if stdenv.hostPlatform.isx86_64 then 2
+    else if stdenv.hostPlatform.isAarch64 then 4
+    else throw "Unsupported architecture for SIF: ${stdenv.hostPlatform.system}";
+
   # Build the squashfs from the sandbox rootfs.
   # Start with a staging directory and copy sandbox contents into it
   # so that the rootfs sits at the squashfs filesystem root.
@@ -79,12 +87,14 @@ runCommand "${name}.sif"
     # --datatype 4 = Partition data
     # --parttype 2 = System partition (PrimSys)
     # --partfs 1 = Squash filesystem
-    # --partarch 2 = amd64
+    # --partarch: 2 = amd64, 4 = arm64
+    # --groupid 1: required for apptainer sign/verify
     apptainer sif add \
       --datatype 4 \
       --parttype 2 \
       --partfs 1 \
-      --partarch 2 \
+      --partarch ${toString sifPartArch} \
+      --groupid 1 \
       "$out" \
       ${squashfs}
   ''

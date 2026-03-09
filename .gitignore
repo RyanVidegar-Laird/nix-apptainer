@@ -13,5 +13,8 @@ result
 # Editors
 .vscode
 
+# Secrets
+.secrets/
+
 # OS
 .DS_Store
