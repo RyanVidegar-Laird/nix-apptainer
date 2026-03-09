@@ -16,5 +16,8 @@ result
 # Secrets
 .secrets/
 
+# Act (local CI)
+.actrc
+
 # OS
 .DS_Store
