@@ -78,6 +78,8 @@
               clippy
               rustfmt
               rust-analyzer
+              act
+              shellcheck
             ];
           };
 
