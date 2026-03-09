@@ -64,6 +64,25 @@ pub fn check_fuse() -> CheckResult {
     }
 }
 
+/// Check for fuse-overlayfs binary.
+pub fn check_fuse_overlayfs() -> CheckResult {
+    if Command::new("fuse-overlayfs").arg("--version").output().is_ok() {
+        CheckResult {
+            name: "fuse-overlayfs".to_string(),
+            passed: true,
+            message: "available".to_string(),
+            required: true,
+        }
+    } else {
+        CheckResult {
+            name: "fuse-overlayfs".to_string(),
+            passed: false,
+            message: "Not found on PATH. Required for overlay mounts.".to_string(),
+            required: true,
+        }
+    }
+}
+
 /// Check for fakeroot support.
 pub fn check_fakeroot() -> CheckResult {
     if Command::new("fakeroot").arg("--version").output().is_ok() {
@@ -115,6 +134,7 @@ pub fn run_all_checks(data_path: &Path) -> (Vec<CheckResult>, bool) {
     let checks = vec![
         find_apptainer(),
         check_fuse(),
+        check_fuse_overlayfs(),
         check_fakeroot(),
         check_disk_space(data_path),
     ];
