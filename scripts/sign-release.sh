@@ -191,8 +191,14 @@ gpg_sign "${OUTPUT_DIR}/SHA256SUMS" "${OUTPUT_DIR}/SHA256SUMS.sig"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SIGNING_KEY="${SCRIPT_DIR}/../signing-key.asc"
 if [ -f "$SIGNING_KEY" ]; then
-    echo "Copying signing-key.asc"
-    cp "$SIGNING_KEY" "${OUTPUT_DIR}/signing-key.asc"
+    src="$(readlink -f "$SIGNING_KEY")"
+    dst="$(readlink -f "${OUTPUT_DIR}/signing-key.asc" 2>/dev/null || echo "")"
+    if [ "$src" = "$dst" ]; then
+        echo "signing-key.asc already in output directory"
+    else
+        echo "Copying signing-key.asc"
+        cp "$SIGNING_KEY" "${OUTPUT_DIR}/signing-key.asc"
+    fi
 else
     echo "Warning: signing-key.asc not found at ${SIGNING_KEY}, skipping" >&2
 fi
