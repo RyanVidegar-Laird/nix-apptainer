@@ -66,7 +66,7 @@ pub fn run(flags: UpdateFlags) -> anyhow::Result<()> {
             .get(sha_url)
             .send()?
             .text()?;
-        if sif::verify_sha256(&hash, &expected) {
+        if sif::verify_sha256(&hash, &expected, Some(&release.sif_asset_name)) {
             println!("  SHA256 verified \u{2713}");
         } else {
             anyhow::bail!("SHA256 mismatch! Expected: {expected}, Got: {hash}");

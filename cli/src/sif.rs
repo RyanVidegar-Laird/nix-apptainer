@@ -40,7 +40,18 @@ impl SifSource {
 pub struct ReleaseInfo {
     pub tag: String,
     pub sif_url: String,
+    pub sif_asset_name: String,
     pub sha256_url: Option<String>,
+}
+
+/// Return the Nix-style platform string for the current system (e.g. "x86_64-linux").
+pub fn current_arch() -> String {
+    let arch = std::env::consts::ARCH;
+    let os = match std::env::consts::OS {
+        "macos" => "darwin",
+        other => other,
+    };
+    format!("{arch}-{os}")
 }
 
 /// Query the GitHub API for the latest release containing a .sif asset.
@@ -66,32 +77,42 @@ pub fn fetch_latest_release(repo: &str) -> anyhow::Result<ReleaseInfo> {
         .as_array()
         .context("No assets in release")?;
 
+    let arch = current_arch();
+    let expected_sif_name = format!("base-nixos-{arch}.sif");
+
     let sif_asset = assets
         .iter()
         .find(|a| {
             a["name"]
                 .as_str()
-                .is_some_and(|n| n.ends_with(".sif"))
+                .is_some_and(|n| n == expected_sif_name)
         })
-        .context("No .sif asset found in latest release")?;
+        .with_context(|| format!("No SIF asset for {arch} in latest release"))?;
+
+    let sif_asset_name = sif_asset["name"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let sif_url = sif_asset["browser_download_url"]
         .as_str()
         .context("No download URL for SIF asset")?
         .to_string();
 
+    let expected_sha_name = format!("SHA256SUMS-{arch}");
     let sha256_url = assets
         .iter()
         .find(|a| {
             a["name"]
                 .as_str()
-                .is_some_and(|n| n.ends_with(".sha256"))
+                .is_some_and(|n| n == expected_sha_name)
         })
         .and_then(|a| a["browser_download_url"].as_str().map(|s| s.to_string()));
 
     Ok(ReleaseInfo {
         tag,
         sif_url,
+        sif_asset_name,
         sha256_url,
     })
 }
@@ -176,14 +197,25 @@ pub fn copy_local_sif(src: &str, dest: &Path) -> anyhow::Result<Sha256Digest> {
     Ok(Sha256Digest::from_hasher(hasher))
 }
 
-/// Verify a SHA256 digest against an expected value (from .sha256 file content).
-/// The .sha256 file typically contains "hash  filename\n".
-pub fn verify_sha256(actual: &Sha256Digest, expected_content: &str) -> bool {
-    let expected_hex = expected_content
+/// Verify a SHA256 digest against a SHA256SUMS file.
+/// The file contains lines of "hash  filename". If `sif_filename` is provided,
+/// only the line matching that filename is used. Otherwise the first line is used.
+pub fn verify_sha256(actual: &Sha256Digest, expected_content: &str, sif_filename: Option<&str>) -> bool {
+    let line = if let Some(filename) = sif_filename {
+        expected_content
+            .lines()
+            .find(|l| l.contains(filename))
+    } else {
+        expected_content.lines().next()
+    };
+
+    let expected_hex = line
+        .unwrap_or("")
         .split_whitespace()
         .next()
         .unwrap_or("")
         .trim();
+
     match Sha256Digest::from_hex(expected_hex) {
         Ok(expected) => *actual == expected,
         Err(_) => false,
@@ -216,17 +248,74 @@ mod tests {
             "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
         )
         .unwrap();
+        // Single-line format with filename
         assert!(verify_sha256(
             &digest,
-            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824  base.sif\n"
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824  base.sif\n",
+            None,
         ));
+        // Hash only
         assert!(verify_sha256(
             &digest,
-            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+            None,
         ));
+        // Mismatch
         assert!(!verify_sha256(
             &digest,
-            "0000000000000000000000000000000000000000000000000000000000000000  base.sif\n"
+            "0000000000000000000000000000000000000000000000000000000000000000  base.sif\n",
+            None,
         ));
+    }
+
+    #[test]
+    fn test_verify_sha256_multiline() {
+        let digest = Sha256Digest::from_hex(
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        )
+        .unwrap();
+        let sums = "\
+0000000000000000000000000000000000000000000000000000000000000000  base-nixos-aarch64-linux.sif
+2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824  base-nixos-x86_64-linux.sif
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  nix-apptainer-x86_64-linux
+";
+        // Should find the correct line by filename
+        assert!(verify_sha256(
+            &digest,
+            sums,
+            Some("base-nixos-x86_64-linux.sif"),
+        ));
+        // Wrong arch should not match
+        assert!(!verify_sha256(
+            &digest,
+            sums,
+            Some("base-nixos-aarch64-linux.sif"),
+        ));
+        // Missing filename returns false
+        assert!(!verify_sha256(
+            &digest,
+            sums,
+            Some("nonexistent.sif"),
+        ));
+    }
+
+    #[test]
+    fn test_current_arch() {
+        let arch = current_arch();
+        assert!(
+            arch.contains('-'),
+            "current_arch() should return 'arch-os' format, got: {arch}"
+        );
+        // Should be a known platform
+        let valid = [
+            "x86_64-linux",
+            "aarch64-linux",
+            "x86_64-darwin",
+            "aarch64-darwin",
+        ];
+        assert!(
+            valid.contains(&arch.as_str()),
+            "unexpected platform: {arch}"
+        );
     }
 }

@@ -27,7 +27,7 @@ fn default_source() -> String {
 }
 
 fn default_repo() -> String {
-    "hydrangea/nix-apptainer".to_string()
+    "RyanVidegar-Laird/nix-apptainer".to_string()
 }
 
 impl Default for SifConfig {
@@ -103,7 +103,7 @@ mod tests {
     fn test_default_config() {
         let config = Config::default();
         assert_eq!(config.sif.source, "github");
-        assert_eq!(config.sif.repo, "hydrangea/nix-apptainer");
+        assert_eq!(config.sif.repo, "RyanVidegar-Laird/nix-apptainer");
         assert_eq!(config.overlay.size_mb, 51200);
         assert_eq!(config.enter.gpu, "");
         assert!(config.enter.bind.is_empty());
