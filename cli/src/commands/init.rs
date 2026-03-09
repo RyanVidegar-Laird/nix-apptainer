@@ -90,7 +90,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
         SifSource::from_config(sif, "")
     } else if flags.yes {
         SifSource::GitHub {
-            repo: "hydrangea/nix-apptainer".to_string(),
+            repo: "RyanVidegar-Laird/nix-apptainer".to_string(),
         }
     } else {
         let choices = vec![
@@ -105,7 +105,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
             .interact()?;
         match selection {
             0 => SifSource::GitHub {
-                repo: "hydrangea/nix-apptainer".to_string(),
+                repo: "RyanVidegar-Laird/nix-apptainer".to_string(),
             },
             1 => {
                 let path: String = Input::new()
@@ -140,7 +140,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
                     .get(sha_url)
                     .send()?
                     .text()?;
-                if sif::verify_sha256(&hash, &expected) {
+                if sif::verify_sha256(&hash, &expected, Some(&release.sif_asset_name)) {
                     println!("  SHA256 verified \u{2713}");
                 } else {
                     anyhow::bail!("SHA256 mismatch! Expected: {expected}, Got: {hash}");

@@ -9,53 +9,33 @@ Apptainer container image with a minimal NixOS system and single-user Nix for HP
 Download the CLI binary and base SIF for your architecture from [GitHub Releases](https://github.com/RyanVidegar-Laird/nix-apptainer/releases):
 
 ```bash
-# x86_64
-curl -LO https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download/nix-apptainer-x86_64-linux
-curl -LO https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download/base-nixos-x86_64-linux.sif
-chmod +x nix-apptainer-x86_64-linux
-mv nix-apptainer-x86_64-linux nix-apptainer
+ARCH=$(uname -m)  # x86_64 or aarch64
+REPO=https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download
 
-# aarch64
-curl -LO https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download/nix-apptainer-aarch64-linux
-curl -LO https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download/base-nixos-aarch64-linux.sif
-chmod +x nix-apptainer-aarch64-linux
-mv nix-apptainer-aarch64-linux nix-apptainer
+curl -LO "$REPO/nix-apptainer-${ARCH}-linux"
+curl -LO "$REPO/base-nixos-${ARCH}-linux.sif"
+chmod +x "nix-apptainer-${ARCH}-linux"
+mv "nix-apptainer-${ARCH}-linux" nix-apptainer
+```
+
+Optionally verify signatures and checksums:
+
+```bash
+curl -sL "$REPO/signing-key.asc" | gpg --import
+curl -LO "$REPO/SHA256SUMS" && curl -LO "$REPO/SHA256SUMS.sig"
+
+gpg --verify SHA256SUMS.sig SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
+apptainer verify "base-nixos-${ARCH}-linux.sif"
 ```
 
 Or build from source:
 
 ```bash
+git clone https://github.com/RyanVidegar-Laird/nix-apptainer.git
+cd nix-apptainer
 nix build .#cli -o cli-result    # static CLI binary
 nix build -o sif-result          # base SIF image
-```
-
-### Verify signatures
-
-Import the project signing key:
-
-```bash
-gpg --import signing-key.asc
-# or from a release:
-curl -sL https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download/signing-key.asc | gpg --import
-```
-
-Verify the CLI binary:
-
-```bash
-gpg --verify nix-apptainer-x86_64-linux.sig nix-apptainer-x86_64-linux
-```
-
-Verify the SIF image:
-
-```bash
-apptainer verify base-nixos-x86_64-linux.sif
-```
-
-Verify all checksums:
-
-```bash
-gpg --verify SHA256SUMS.sig SHA256SUMS
-sha256sum -c SHA256SUMS
 ```
 
 ### Set up (one-time)
@@ -140,7 +120,7 @@ export NIX_APPTAINER_HOME=/scratch/$USER/nix-apptainer
 ```toml
 [sif]
 source = "github"                    # "github", a URL, or a local file path
-repo = "hydrangea/nix-apptainer"     # GitHub repo for updates
+repo = "RyanVidegar-Laird/nix-apptainer"  # GitHub repo for updates
 
 [overlay]
 size_mb = 51200                      # sparse overlay size in MB
