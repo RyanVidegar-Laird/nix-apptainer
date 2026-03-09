@@ -1,5 +1,7 @@
 # nix-apptainer
 
+[![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2FRyanVidegar-Laird%2Fnix-apptainer)](https://garnix.io/repo/RyanVidegar-Laird/nix-apptainer)
+
 Apptainer container image with a minimal NixOS system and single-user Nix for HPC environments. Users get a portable shell where they can `nix develop`, `nix build`, and use flakes on clusters that don't have Nix installed.
 
 ## Quick start
