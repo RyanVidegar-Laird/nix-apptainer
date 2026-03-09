@@ -15,7 +15,7 @@
 {
   sandbox,
   name ? "nix-apptainer",
-  comp ? "zstd -Xcompression-level 19",
+  comp ? "gzip",
 }:
 
 let
