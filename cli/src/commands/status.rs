@@ -2,6 +2,8 @@ use crate::checks;
 use crate::config::Config;
 use crate::paths::AppPaths;
 use crate::state::State;
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 
 pub fn run() -> anyhow::Result<()> {
     let paths = AppPaths::resolve()?;
@@ -24,10 +26,16 @@ pub fn run() -> anyhow::Result<()> {
 
     // Overlay info
     let overlay_info = if paths.overlay_path.exists() {
-        let size = std::fs::metadata(&paths.overlay_path)?.len();
-        let size_str = human_size(size);
-        let sparse = human_size(config.overlay.size_mb * 1024 * 1024);
-        format!("{size_str} used / {sparse} sparse")
+        let meta = std::fs::metadata(&paths.overlay_path)?;
+        let on_disk = meta.blocks() * 512;
+        let allocated = meta.len();
+        let capacity = config.overlay.size_mb * 1024 * 1024;
+        format!(
+            "{} on disk / {} allocated / {} capacity",
+            human_size(on_disk),
+            human_size(allocated),
+            human_size(capacity)
+        )
     } else {
         "not created".to_string()
     };
@@ -89,5 +97,19 @@ mod tests {
         assert_eq!(human_size(1_048_576), "1.0 MB");
         assert_eq!(human_size(1_073_741_824), "1.0 GB");
         assert_eq!(human_size(1_610_612_736), "1.5 GB");
+    }
+
+    #[test]
+    fn test_overlay_format() {
+        let on_disk = 128 * 1024 * 1024u64;
+        let allocated = 2 * 1024 * 1024 * 1024u64;
+        let capacity = 50 * 1024 * 1024 * 1024u64;
+        let result = format!(
+            "{} on disk / {} allocated / {} capacity",
+            human_size(on_disk),
+            human_size(allocated),
+            human_size(capacity)
+        );
+        assert_eq!(result, "128.0 MB on disk / 2.0 GB allocated / 50.0 GB capacity");
     }
 }
