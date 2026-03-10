@@ -87,7 +87,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
 
     // --- SIF source ---
     let sif_source = if let Some(ref sif) = flags.sif {
-        SifSource::from_config(sif, "")
+        SifSource::from_config(sif, "")?
     } else if flags.yes {
         SifSource::GitHub {
             repo: "RyanVidegar-Laird/nix-apptainer".to_string(),
@@ -136,6 +136,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
             if let Some(ref sha_url) = release.sha256_url {
                 let expected = reqwest::blocking::Client::builder()
                     .user_agent("nix-apptainer")
+                    .https_only(true)
                     .build()?
                     .get(sha_url)
                     .send()?
