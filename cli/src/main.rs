@@ -12,6 +12,7 @@ mod overlay;
 mod paths;
 mod sif;
 mod state;
+mod system;
 mod util;
 
 #[derive(Parser)]
