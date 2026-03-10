@@ -113,7 +113,6 @@ mkdir -p "$OUTPUT_DIR"
 if [ -n "${GPG_PRIVATE_KEY:-}" ]; then
     echo "==> Importing GPG private key into gpg keyring"
     echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-    echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
     gpgconf --kill gpg-agent
 
     echo "==> Importing private key into apptainer keyring"
