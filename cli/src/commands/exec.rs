@@ -41,8 +41,8 @@ pub fn run(flags: ExecFlags) -> anyhow::Result<()> {
     args.push("--overlay".to_string());
     args.push(paths.overlay_path.to_string_lossy().to_string());
 
-    let use_nv = flags.nv || config.enter.gpu == "nvidia";
-    let use_rocm = flags.rocm || config.enter.gpu == "rocm";
+    let use_nv = flags.nv || config.enter.gpu == crate::config::GpuMode::Nvidia;
+    let use_rocm = flags.rocm || config.enter.gpu == crate::config::GpuMode::Rocm;
     if use_nv {
         args.push("--nv".to_string());
     }

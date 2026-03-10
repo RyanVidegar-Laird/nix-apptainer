@@ -12,9 +12,9 @@ pub struct State {
     /// SHA256 digest of the installed SIF file
     #[serde(default)]
     pub sif_sha256: Sha256Digest,
-    /// ISO 8601 timestamp of the last update check
+    /// Unix epoch seconds of the last update check
     #[serde(default)]
-    pub last_update_check: String,
+    pub last_update_check: u64,
 }
 
 impl State {
@@ -27,6 +27,11 @@ impl State {
             .with_context(|| format!("Failed to read state: {}", path.display()))?;
         serde_json::from_str(&contents)
             .with_context(|| format!("Failed to parse state: {}", path.display()))
+    }
+
+    /// Set `last_update_check` to the current unix epoch timestamp.
+    pub fn touch_update_check(&mut self) {
+        self.last_update_check = crate::util::timestamp_now();
     }
 
     /// Save state to JSON file. Creates parent directories if needed.
@@ -70,7 +75,7 @@ mod tests {
         let state = State {
             sif_version: "v0.2.0".to_string(),
             sif_sha256: digest.clone(),
-            last_update_check: "2026-03-07T12:00:00Z".to_string(),
+            last_update_check: 1709827200u64,
         };
         state.save(&path).unwrap();
         let loaded = State::load(&path).unwrap();

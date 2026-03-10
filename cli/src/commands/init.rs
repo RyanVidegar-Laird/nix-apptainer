@@ -226,7 +226,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     let state = State {
         sif_version: version,
         sif_sha256: hash,
-        last_update_check: timestamp_now(),
+        last_update_check: crate::util::timestamp_now(),
     };
     state.save(&paths.state_file)?;
 
@@ -236,10 +236,3 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Simple timestamp without pulling in chrono.
-fn timestamp_now() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    format!("{}s-since-epoch", now.as_secs())
-}

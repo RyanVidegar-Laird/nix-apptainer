@@ -58,11 +58,21 @@ impl Default for OverlayConfig {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Default, PartialEq, Eq, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum GpuMode {
+    #[default]
+    #[serde(rename = "")]
+    None,
+    Nvidia,
+    Rocm,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct EnterConfig {
-    /// GPU passthrough: "nvidia", "rocm", or ""
+    /// GPU passthrough mode
     #[serde(default)]
-    pub gpu: String,
+    pub gpu: GpuMode,
     /// Bind mounts in "src:dst" format
     #[serde(default)]
     pub bind: Vec<String>,
@@ -96,6 +106,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::GpuMode;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
@@ -105,7 +116,7 @@ mod tests {
         assert_eq!(config.sif.source, "github");
         assert_eq!(config.sif.repo, "RyanVidegar-Laird/nix-apptainer");
         assert_eq!(config.overlay.size_mb, 51200);
-        assert_eq!(config.enter.gpu, "");
+        assert_eq!(config.enter.gpu, GpuMode::None);
         assert!(config.enter.bind.is_empty());
     }
 
@@ -133,7 +144,7 @@ bind = ["/scratch:/scratch", "/data:/data"]
         let config = Config::load(f.path()).unwrap();
         assert_eq!(config.sif.source, "/data/shared/base.sif");
         assert_eq!(config.overlay.size_mb, 20480);
-        assert_eq!(config.enter.gpu, "nvidia");
+        assert_eq!(config.enter.gpu, GpuMode::Nvidia);
         assert_eq!(config.enter.bind.len(), 2);
     }
 }

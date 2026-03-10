@@ -73,13 +73,10 @@ pub fn run(flags: UpdateFlags) -> anyhow::Result<()> {
         }
     }
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
     let new_state = State {
         sif_version: release.tag.clone(),
         sif_sha256: hash,
-        last_update_check: format!("{}s-since-epoch", now.as_secs()),
+        last_update_check: crate::util::timestamp_now(),
     };
     new_state.save(&paths.state_file)?;
 

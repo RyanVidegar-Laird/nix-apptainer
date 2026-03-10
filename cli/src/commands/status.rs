@@ -47,10 +47,10 @@ pub fn run() -> anyhow::Result<()> {
     };
 
     // GPU
-    let gpu_info = if config.enter.gpu.is_empty() {
-        "none".to_string()
-    } else {
-        config.enter.gpu.clone()
+    let gpu_info = match &config.enter.gpu {
+        crate::config::GpuMode::None => "none".to_string(),
+        crate::config::GpuMode::Nvidia => "nvidia".to_string(),
+        crate::config::GpuMode::Rocm => "rocm".to_string(),
     };
 
     // Bind mounts

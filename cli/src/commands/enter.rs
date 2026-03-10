@@ -37,8 +37,8 @@ pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
     args.push(paths.overlay_path.to_string_lossy().to_string());
 
     // GPU from config, overridden by flags
-    let use_nv = flags.nv || config.enter.gpu == "nvidia";
-    let use_rocm = flags.rocm || config.enter.gpu == "rocm";
+    let use_nv = flags.nv || config.enter.gpu == crate::config::GpuMode::Nvidia;
+    let use_rocm = flags.rocm || config.enter.gpu == crate::config::GpuMode::Rocm;
     if use_nv {
         args.push("--nv".to_string());
     }
