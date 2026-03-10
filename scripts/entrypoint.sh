@@ -14,15 +14,15 @@ if [ -f /nix-path-registration ] && [ ! -f /nix/var/nix/db/db.sqlite ]; then
     echo "nix-apptainer: Store database initialized."
 fi
 
-# --- Source environment ---
-if [ -f /etc/profile ]; then
-    # shellcheck disable=SC1091
-    . /etc/profile
-fi
-
-# Ensure PATH includes nix and system tools
+# Ensure PATH includes nix and system tools (needed for nix-store below
+# and for the TERM check; the login shell will get full PATH from /etc/profile)
 export PATH="/usr/local/bin:/run/sw/bin:/bin:/usr/bin:${PATH:-}"
 export NIX_REMOTE=""
+
+# Fall back to xterm-256color if TERM is unset or unrecognized
+if [ -z "${TERM:-}" ] || ! infocmp "$TERM" >/dev/null 2>&1; then
+    export TERM=xterm-256color
+fi
 
 # --- Execute command or interactive shell ---
 if [ $# -gt 0 ]; then

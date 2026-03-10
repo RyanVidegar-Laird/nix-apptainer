@@ -42,7 +42,33 @@
     curl
     wget
     nano
+    ncurses
   ];
+
+  # Interactive shell configuration
+  programs.bash = {
+    promptInit = ''
+      # Apptainer sets PROMPT_COMMAND to override PS1 with "Apptainer> "
+      unset PROMPT_COMMAND
+      if [ "$TERM" != "dumb" ]; then
+        PS1='\[\e[1;34m\][nix-apptainer]\[\e[0m\] \[\e[1;32m\]\u@\h\[\e[0m\]:\[\e[1;33m\]\w\[\e[0m\]\$ '
+      fi
+    '';
+    interactiveShellInit = ''
+      # Fall back to xterm-256color if terminal type is unrecognized
+      if [ -z "''${TERM:-}" ]; then
+        export TERM=xterm-256color
+      elif ! infocmp "$TERM" >/dev/null 2>&1; then
+        export TERM=xterm-256color
+      fi
+
+      HISTSIZE=10000
+      HISTFILESIZE=20000
+      HISTCONTROL=ignoreboth:erasedups
+      shopt -s histappend
+      shopt -s globstar 2>/dev/null
+    '';
+  };
 
   # Minimal user setup
   users.users.nixuser = {
