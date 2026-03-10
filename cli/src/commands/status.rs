@@ -13,7 +13,7 @@ pub fn run() -> anyhow::Result<()> {
     // SIF info
     let sif_info = if paths.sif_path.exists() {
         let size = std::fs::metadata(&paths.sif_path)?.len();
-        let size_str = human_size(size);
+        let size_str = crate::util::human_size(size);
         let version = if state.sif_version.is_empty() {
             "unknown".to_string()
         } else {
@@ -32,9 +32,9 @@ pub fn run() -> anyhow::Result<()> {
         let capacity = config.overlay.size_mb * 1024 * 1024;
         format!(
             "{} on disk / {} allocated / {} capacity",
-            human_size(on_disk),
-            human_size(allocated),
-            human_size(capacity)
+            crate::util::human_size(on_disk),
+            crate::util::human_size(allocated),
+            crate::util::human_size(capacity)
         )
     } else {
         "not created".to_string()
@@ -71,34 +71,8 @@ pub fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn human_size(bytes: u64) -> String {
-    const GB: u64 = 1_073_741_824;
-    const MB: u64 = 1_048_576;
-    const KB: u64 = 1024;
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{bytes} B")
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn test_human_size() {
-        assert_eq!(human_size(0), "0 B");
-        assert_eq!(human_size(1024), "1.0 KB");
-        assert_eq!(human_size(1_048_576), "1.0 MB");
-        assert_eq!(human_size(1_073_741_824), "1.0 GB");
-        assert_eq!(human_size(1_610_612_736), "1.5 GB");
-    }
-
     #[test]
     fn test_overlay_format() {
         let on_disk = 128 * 1024 * 1024u64;
@@ -106,9 +80,9 @@ mod tests {
         let capacity = 50 * 1024 * 1024 * 1024u64;
         let result = format!(
             "{} on disk / {} allocated / {} capacity",
-            human_size(on_disk),
-            human_size(allocated),
-            human_size(capacity)
+            crate::util::human_size(on_disk),
+            crate::util::human_size(allocated),
+            crate::util::human_size(capacity)
         );
         assert_eq!(result, "128.0 MB on disk / 2.0 GB allocated / 50.0 GB capacity");
     }

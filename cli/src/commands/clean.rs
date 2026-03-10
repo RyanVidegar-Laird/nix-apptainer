@@ -59,7 +59,7 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
     if paths.cache_dir.exists() {
         let size = dir_size(&paths.cache_dir);
         items.push((
-            format!("Download cache (~{})", human_size(size)),
+            format!("Download cache (~{})", crate::util::human_size(size)),
             &paths.cache_dir,
         ));
     }
@@ -68,7 +68,7 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
             .map(|m| m.len())
             .unwrap_or(0);
         items.push((
-            format!("Overlay image (~{})", human_size(size)),
+            format!("Overlay image (~{})", crate::util::human_size(size)),
             &paths.overlay_path,
         ));
     }
@@ -77,7 +77,7 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
             .map(|m| m.len())
             .unwrap_or(0);
         items.push((
-            format!("Base SIF (~{})", human_size(size)),
+            format!("Base SIF (~{})", crate::util::human_size(size)),
             &paths.sif_path,
         ));
     }
@@ -163,19 +163,4 @@ fn dir_size(path: &Path) -> u64 {
         }
     }
     total
-}
-
-fn human_size(bytes: u64) -> String {
-    const GB: u64 = 1_073_741_824;
-    const MB: u64 = 1_048_576;
-    const KB: u64 = 1024;
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{bytes} B")
-    }
 }
