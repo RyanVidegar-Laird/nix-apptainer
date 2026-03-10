@@ -102,14 +102,14 @@ pub fn check_fakeroot() -> CheckResult {
     }
 }
 
-/// Check available disk space at the given path via `df`.
+/// Check available disk space at the given path.
 pub fn check_disk_space(path: &Path) -> CheckResult {
     // Find the first existing ancestor directory to check
     let check_path = std::iter::successors(Some(path), |p| p.parent())
         .find(|p| p.exists())
         .unwrap_or(Path::new("/"));
 
-    match df_available_bytes(check_path) {
+    match available_bytes(check_path) {
         Some(bytes) => {
             let gb = bytes as f64 / 1_073_741_824.0;
             let passed = gb >= 2.0; // warn below 2GB
@@ -129,31 +129,32 @@ pub fn check_disk_space(path: &Path) -> CheckResult {
     }
 }
 
-/// Run all system checks. Returns (results, any_required_failed).
-pub fn run_all_checks(data_path: &Path) -> (Vec<CheckResult>, bool) {
-    let checks = vec![
+/// Results of running all system checks.
+pub struct SystemCheckReport {
+    pub results: Vec<CheckResult>,
+    pub apptainer_binary: Option<String>,
+    pub any_required_failed: bool,
+}
+
+/// Run all system checks.
+pub fn run_all_checks(data_path: &Path) -> SystemCheckReport {
+    let results = vec![
         find_apptainer(),
         check_fuse(),
         check_fuse_overlayfs(),
         check_fakeroot(),
         check_disk_space(data_path),
     ];
-    let any_required_failed = checks.iter().any(|c| c.required && !c.passed);
-    (checks, any_required_failed)
+    let any_required_failed = results.iter().any(|c| c.required && !c.passed);
+    let apptainer_binary = apptainer_binary();
+    SystemCheckReport {
+        results,
+        apptainer_binary,
+        any_required_failed,
+    }
 }
 
-/// Query available disk space using `df`. Returns bytes available.
-fn df_available_bytes(path: &Path) -> Option<u64> {
-    // `df --output=avail -B1 <path>` prints available bytes (header + value)
-    let output = Command::new("df")
-        .args(["--output=avail", "-B1"])
-        .arg(path)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    // Second line contains the number
-    text.lines().nth(1)?.trim().parse().ok()
+fn available_bytes(path: &Path) -> Option<u64> {
+    let stat = nix::sys::statvfs::statvfs(path).ok()?;
+    Some(stat.fragment_size() as u64 * stat.blocks_available() as u64)
 }
