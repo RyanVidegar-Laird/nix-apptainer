@@ -3,6 +3,7 @@ use std::process::Command;
 
 use crate::checks;
 use crate::config::Config;
+use crate::container::{build_apptainer_args, ContainerMode, ContainerOpts};
 use crate::paths::AppPaths;
 
 pub struct ExecFlags {
@@ -37,37 +38,21 @@ pub fn run(flags: ExecFlags) -> anyhow::Result<()> {
     let apptainer = checks::apptainer_binary()
         .context("apptainer/singularity not found")?;
 
-    let mut args: Vec<String> = vec!["exec".to_string()];
-    args.push("--overlay".to_string());
-    args.push(paths.overlay_path.to_string_lossy().to_string());
-
-    let use_nv = flags.nv || config.enter.gpu == crate::config::GpuMode::Nvidia;
-    let use_rocm = flags.rocm || config.enter.gpu == crate::config::GpuMode::Rocm;
-    if use_nv {
-        args.push("--nv".to_string());
-    }
-    if use_rocm {
-        args.push("--rocm".to_string());
-    }
-
-    for b in &config.enter.bind {
-        args.push("--bind".to_string());
-        args.push(b.clone());
-    }
-    for b in &flags.bind {
-        args.push("--bind".to_string());
-        args.push(b.clone());
-    }
-
-    args.extend(flags.passthrough.iter().cloned());
-    args.push(paths.sif_path.to_string_lossy().to_string());
+    let opts = ContainerOpts {
+        paths: &paths,
+        config: &config,
+        nv: flags.nv,
+        rocm: flags.rocm,
+        bind: &flags.bind,
+        passthrough: &flags.passthrough,
+    };
+    let mut args = build_apptainer_args(&opts, ContainerMode::Exec);
     args.extend(flags.command.iter().cloned());
 
     let err = exec_replace(&apptainer, &args);
     Err(err.into())
 }
 
-/// Replace the current process with apptainer (Unix exec).
 fn exec_replace(program: &str, args: &[String]) -> std::io::Error {
     use std::os::unix::process::CommandExt;
     Command::new(program).args(args).exec()

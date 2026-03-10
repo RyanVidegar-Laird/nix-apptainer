@@ -6,6 +6,7 @@ use std::path::PathBuf;
 mod checks;
 mod commands;
 mod config;
+mod container;
 mod digest;
 mod overlay;
 mod paths;
