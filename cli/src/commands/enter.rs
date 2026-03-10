@@ -32,7 +32,7 @@ pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
     let apptainer = checks::apptainer_binary()
         .context("apptainer/singularity not found")?;
 
-    let mut args: Vec<String> = vec!["shell".to_string()];
+    let mut args: Vec<String> = vec!["run".to_string()];
     args.push("--overlay".to_string());
     args.push(paths.overlay_path.to_string_lossy().to_string());
 

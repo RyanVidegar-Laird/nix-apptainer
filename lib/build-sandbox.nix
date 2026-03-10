@@ -114,6 +114,7 @@ runCommand "nix-apptainer-sandbox"
     export PATH="/usr/local/bin:/run/sw/bin:/bin:/usr/bin:$PATH"
     export NIX_REMOTE=""
     export LOCALE_ARCHIVE="/run/sw/lib/locale/locale-archive"
+    export TERMINFO_DIRS="/run/sw/share/terminfo"
     ENV
     chmod +x $sandbox/.singularity.d/env/90-environment.sh
 
