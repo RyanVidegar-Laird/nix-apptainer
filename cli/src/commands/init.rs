@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use crate::checks;
 use crate::config::Config;
+use crate::digest::Sha256Digest;
 use crate::overlay;
 use crate::paths::AppPaths;
 use crate::sif::{self, SifSource};
@@ -15,6 +16,82 @@ pub struct InitFlags {
     pub overlay_size: Option<u64>,
     pub data_dir: Option<PathBuf>,
     pub yes: bool,
+}
+
+/// Fetch or copy a SIF image based on the source configuration.
+fn fetch_sif(source: &SifSource, paths: &AppPaths) -> anyhow::Result<(String, Sha256Digest)> {
+    match source {
+        SifSource::GitHub { repo } => {
+            println!("Fetching latest release from {repo}...");
+            let release = sif::fetch_latest_release(repo)?;
+            println!("  Found {} \u{2014} downloading...", release.tag);
+            let hash = sif::download_file(&release.sif_url, &paths.sif_path)?;
+            println!("  SHA256: {hash}");
+
+            if let Some(ref sha_url) = release.sha256_url {
+                let expected = reqwest::blocking::Client::builder()
+                    .user_agent("nix-apptainer")
+                    .https_only(true)
+                    .build()?
+                    .get(sha_url)
+                    .send()?
+                    .text()?;
+                if sif::verify_sha256(&hash, &expected, Some(&release.sif_asset_name)) {
+                    println!("  SHA256 verified \u{2713}");
+                } else {
+                    anyhow::bail!("SHA256 mismatch! Expected: {expected}, Got: {hash}");
+                }
+            }
+
+            Ok((release.tag, hash))
+        }
+        SifSource::Url { url } => {
+            println!("Downloading SIF from {url}...");
+            let hash = sif::download_file(url, &paths.sif_path)?;
+            println!("  SHA256: {hash}");
+            Ok(("custom".to_string(), hash))
+        }
+        SifSource::Local { path } => {
+            println!("Copying SIF from {path}...");
+            let hash = sif::copy_local_sif(path, &paths.sif_path)?;
+            println!("  SHA256: {hash}");
+            Ok(("local".to_string(), hash))
+        }
+    }
+}
+
+/// Save configuration and state after successful init.
+fn save_init_state(
+    paths: &AppPaths,
+    sif_source: &SifSource,
+    overlay_size: u64,
+    version: &str,
+    hash: Sha256Digest,
+) -> anyhow::Result<()> {
+    let config_source = match sif_source {
+        SifSource::GitHub { repo } => ("github".to_string(), repo.clone()),
+        SifSource::Url { url } => (url.clone(), String::new()),
+        SifSource::Local { path } => (path.clone(), String::new()),
+    };
+    let config = Config {
+        sif: crate::config::SifConfig {
+            source: config_source.0,
+            repo: config_source.1,
+        },
+        overlay: crate::config::OverlayConfig {
+            size_mb: overlay_size,
+        },
+        enter: crate::config::EnterConfig::default(),
+    };
+    config.save(&paths.config_file)?;
+
+    let state = State {
+        sif_version: version.to_string(),
+        sif_sha256: hash,
+        last_update_check: crate::util::timestamp_now(),
+    };
+    state.save(&paths.state_file)?;
+    Ok(())
 }
 
 pub fn run(flags: InitFlags) -> anyhow::Result<()> {
@@ -124,45 +201,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     };
 
     // --- Fetch SIF ---
-    let (version, hash) = match &sif_source {
-        SifSource::GitHub { repo } => {
-            println!("Fetching latest release from {repo}...");
-            let release = sif::fetch_latest_release(repo)?;
-            println!("  Found {} \u{2014} downloading...", release.tag);
-            let hash = sif::download_file(&release.sif_url, &paths.sif_path)?;
-            println!("  SHA256: {hash}");
-
-            // Verify against .sha256 file if available
-            if let Some(ref sha_url) = release.sha256_url {
-                let expected = reqwest::blocking::Client::builder()
-                    .user_agent("nix-apptainer")
-                    .https_only(true)
-                    .build()?
-                    .get(sha_url)
-                    .send()?
-                    .text()?;
-                if sif::verify_sha256(&hash, &expected, Some(&release.sif_asset_name)) {
-                    println!("  SHA256 verified \u{2713}");
-                } else {
-                    anyhow::bail!("SHA256 mismatch! Expected: {expected}, Got: {hash}");
-                }
-            }
-
-            (release.tag, hash)
-        }
-        SifSource::Url { url } => {
-            println!("Downloading SIF from {url}...");
-            let hash = sif::download_file(url, &paths.sif_path)?;
-            println!("  SHA256: {hash}");
-            ("custom".to_string(), hash)
-        }
-        SifSource::Local { path } => {
-            println!("Copying SIF from {path}...");
-            let hash = sif::copy_local_sif(path, &paths.sif_path)?;
-            println!("  SHA256: {hash}");
-            ("local".to_string(), hash)
-        }
-    };
+    let (version, hash) = fetch_sif(&sif_source, &paths)?;
 
     // --- Overlay ---
     let overlay_size = if let Some(size) = flags.overlay_size {
@@ -205,31 +244,8 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     println!("Initializing Nix store database...");
     overlay::init_nix_db(&paths.sif_path, &paths.overlay_path)?;
 
-    // --- Save config ---
-    let config_source = match &sif_source {
-        SifSource::GitHub { repo } => ("github".to_string(), repo.clone()),
-        SifSource::Url { url } => (url.clone(), String::new()),
-        SifSource::Local { path } => (path.clone(), String::new()),
-    };
-    let config = Config {
-        sif: crate::config::SifConfig {
-            source: config_source.0,
-            repo: config_source.1,
-        },
-        overlay: crate::config::OverlayConfig {
-            size_mb: overlay_size,
-        },
-        enter: crate::config::EnterConfig::default(),
-    };
-    config.save(&paths.config_file)?;
-
-    // --- Save state ---
-    let state = State {
-        sif_version: version,
-        sif_sha256: hash,
-        last_update_check: crate::util::timestamp_now(),
-    };
-    state.save(&paths.state_file)?;
+    // --- Save config and state ---
+    save_init_state(&paths, &sif_source, overlay_size, &version, hash)?;
 
     println!();
     println!("Setup complete! Run `nix-apptainer enter` to start.");
