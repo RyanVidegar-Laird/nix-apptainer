@@ -28,8 +28,8 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     };
 
     // --- System checks ---
-    let (results, any_failed) = checks::run_all_checks(&paths.data_dir);
-    for r in &results {
+    let report = checks::run_all_checks(&paths.data_dir);
+    for r in &report.results {
         let icon = if r.passed {
             "\u{2713}"
         } else if r.required {
@@ -41,7 +41,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     }
     println!();
 
-    if any_failed {
+    if report.any_required_failed {
         anyhow::bail!("Required system checks failed. Fix the issues above and try again.");
     }
 
