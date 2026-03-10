@@ -62,6 +62,7 @@ pub fn run(flags: UpdateFlags) -> anyhow::Result<()> {
     if let Some(ref sha_url) = release.sha256_url {
         let expected = reqwest::blocking::Client::builder()
             .user_agent("nix-apptainer")
+            .https_only(true)
             .build()?
             .get(sha_url)
             .send()?

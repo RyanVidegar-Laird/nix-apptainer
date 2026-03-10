@@ -8,6 +8,7 @@ use std::path::Path;
 use crate::digest::Sha256Digest;
 
 /// Describes where to get the SIF from.
+#[derive(Debug)]
 pub enum SifSource {
     /// Download from GitHub releases for owner/repo
     GitHub { repo: String },
@@ -19,19 +20,24 @@ pub enum SifSource {
 
 impl SifSource {
     /// Parse the sif.source config value into a SifSource.
-    pub fn from_config(source: &str, repo: &str) -> Self {
+    pub fn from_config(source: &str, repo: &str) -> anyhow::Result<Self> {
         if source == "github" {
-            SifSource::GitHub {
+            Ok(SifSource::GitHub {
                 repo: repo.to_string(),
-            }
-        } else if source.starts_with("http://") || source.starts_with("https://") {
-            SifSource::Url {
+            })
+        } else if source.starts_with("https://") {
+            Ok(SifSource::Url {
                 url: source.to_string(),
-            }
+            })
+        } else if source.starts_with("http://") {
+            anyhow::bail!(
+                "HTTP downloads are not supported for security reasons. Use HTTPS: {}",
+                source.replace("http://", "https://")
+            )
         } else {
-            SifSource::Local {
+            Ok(SifSource::Local {
                 path: source.to_string(),
-            }
+            })
         }
     }
 }
@@ -54,20 +60,8 @@ pub fn current_arch() -> String {
     format!("{arch}-{os}")
 }
 
-/// Query the GitHub API for the latest release containing a .sif asset.
-pub fn fetch_latest_release(repo: &str) -> anyhow::Result<ReleaseInfo> {
-    let url = format!("https://api.github.com/repos/{repo}/releases/latest");
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("nix-apptainer")
-        .build()?;
-    let resp: serde_json::Value = client
-        .get(&url)
-        .send()
-        .context("Failed to query GitHub releases")?
-        .error_for_status()
-        .context("GitHub API returned an error")?
-        .json()?;
-
+/// Parse a GitHub release JSON response into a ReleaseInfo.
+pub fn parse_release_response(resp: &serde_json::Value) -> anyhow::Result<ReleaseInfo> {
     let tag = resp["tag_name"]
         .as_str()
         .context("No tag_name in release")?
@@ -91,7 +85,7 @@ pub fn fetch_latest_release(repo: &str) -> anyhow::Result<ReleaseInfo> {
 
     let sif_asset_name = sif_asset["name"]
         .as_str()
-        .unwrap()
+        .context("SIF asset missing 'name' field")?
         .to_string();
 
     let sif_url = sif_asset["browser_download_url"]
@@ -117,10 +111,29 @@ pub fn fetch_latest_release(repo: &str) -> anyhow::Result<ReleaseInfo> {
     })
 }
 
+/// Query the GitHub API for the latest release containing a .sif asset.
+pub fn fetch_latest_release(repo: &str) -> anyhow::Result<ReleaseInfo> {
+    let url = format!("https://api.github.com/repos/{repo}/releases/latest");
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("nix-apptainer")
+        .https_only(true)
+        .build()?;
+    let resp: serde_json::Value = client
+        .get(&url)
+        .send()
+        .context("Failed to query GitHub releases")?
+        .error_for_status()
+        .context("GitHub API returned an error")?
+        .json()?;
+
+    parse_release_response(&resp)
+}
+
 /// Download a file with a progress bar. Returns the SHA256 digest.
 pub fn download_file(url: &str, dest: &Path) -> anyhow::Result<Sha256Digest> {
     let client = reqwest::blocking::Client::builder()
         .user_agent("nix-apptainer")
+        .https_only(true)
         .build()?;
     let mut resp = client
         .get(url)
@@ -138,7 +151,7 @@ pub fn download_file(url: &str, dest: &Path) -> anyhow::Result<Sha256Digest> {
     let pb = ProgressBar::new(total_size);
     pb.set_style(
         ProgressStyle::with_template("  [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-            .unwrap()
+            .expect("hardcoded progress bar template")
             .progress_chars("##-"),
     );
 
@@ -175,7 +188,7 @@ pub fn copy_local_sif(src: &str, dest: &Path) -> anyhow::Result<Sha256Digest> {
     let pb = ProgressBar::new(total_size);
     pb.set_style(
         ProgressStyle::with_template("  [{bar:40.cyan/blue}] {bytes}/{total_bytes}")
-            .unwrap()
+            .expect("hardcoded progress bar template")
             .progress_chars("##-"),
     );
 
@@ -228,18 +241,26 @@ mod tests {
 
     #[test]
     fn test_sif_source_from_config() {
-        match SifSource::from_config("github", "org/repo") {
+        match SifSource::from_config("github", "org/repo").unwrap() {
             SifSource::GitHub { repo } => assert_eq!(repo, "org/repo"),
             _ => panic!("expected GitHub"),
         }
-        match SifSource::from_config("https://example.com/image.sif", "") {
+        match SifSource::from_config("https://example.com/image.sif", "").unwrap() {
             SifSource::Url { url } => assert_eq!(url, "https://example.com/image.sif"),
             _ => panic!("expected Url"),
         }
-        match SifSource::from_config("/data/shared/base.sif", "") {
+        match SifSource::from_config("/data/shared/base.sif", "").unwrap() {
             SifSource::Local { path } => assert_eq!(path, "/data/shared/base.sif"),
             _ => panic!("expected Local"),
         }
+    }
+
+    #[test]
+    fn test_sif_source_rejects_http() {
+        let result = SifSource::from_config("http://example.com/image.sif", "");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("HTTP downloads are not supported"));
     }
 
     #[test]
@@ -317,5 +338,68 @@ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  nix-apptainer-
             valid.contains(&arch.as_str()),
             "unexpected platform: {arch}"
         );
+    }
+
+    #[test]
+    fn test_parse_release_response_valid() {
+        let json = serde_json::json!({
+            "tag_name": "v0.2.0",
+            "assets": [
+                {
+                    "name": format!("base-nixos-{}.sif", current_arch()),
+                    "browser_download_url": "https://example.com/base.sif"
+                },
+                {
+                    "name": format!("SHA256SUMS-{}", current_arch()),
+                    "browser_download_url": "https://example.com/SHA256SUMS"
+                }
+            ]
+        });
+        let info = parse_release_response(&json).unwrap();
+        assert_eq!(info.tag, "v0.2.0");
+        assert_eq!(info.sif_url, "https://example.com/base.sif");
+        assert!(info.sha256_url.is_some());
+    }
+
+    #[test]
+    fn test_parse_release_response_missing_arch() {
+        let json = serde_json::json!({
+            "tag_name": "v0.2.0",
+            "assets": [
+                {
+                    "name": "base-nixos-aarch64-unknown.sif",
+                    "browser_download_url": "https://example.com/wrong.sif"
+                }
+            ]
+        });
+        let result = parse_release_response(&json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_release_response_no_sha256() {
+        let json = serde_json::json!({
+            "tag_name": "v0.1.0",
+            "assets": [
+                {
+                    "name": format!("base-nixos-{}.sif", current_arch()),
+                    "browser_download_url": "https://example.com/base.sif"
+                }
+            ]
+        });
+        let info = parse_release_response(&json).unwrap();
+        assert!(info.sha256_url.is_none());
+    }
+
+    #[test]
+    fn test_parse_release_response_no_tag() {
+        let json = serde_json::json!({ "assets": [] });
+        assert!(parse_release_response(&json).is_err());
+    }
+
+    #[test]
+    fn test_parse_release_response_no_assets() {
+        let json = serde_json::json!({ "tag_name": "v1.0" });
+        assert!(parse_release_response(&json).is_err());
     }
 }
