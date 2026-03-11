@@ -42,7 +42,7 @@ let
     "coreutils"
   ];
   packageChecks = map (name: {
-    check = builtins.any (p: builtins.match ".*${name}.*" p != null) packageNames;
+    check = builtins.any (p: p == name) packageNames;
     msg = "environment.systemPackages must include ${name}";
   }) expectedPackages;
 
