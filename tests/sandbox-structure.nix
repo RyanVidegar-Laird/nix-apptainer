@@ -89,6 +89,11 @@ runCommand "nix-apptainer-test-sandbox"
     [ -s "$sb/nix-path-registration" ] || fail "nix-path-registration is empty"
     pass "nix-path-registration exists and is non-empty"
 
+    # db.sqlite must exist (populated at build time via nix-store --load-db)
+    [ -f "$sb/nix/var/nix/db/db.sqlite" ] || fail "nix/var/nix/db/db.sqlite missing"
+    [ -s "$sb/nix/var/nix/db/db.sqlite" ] || fail "nix/var/nix/db/db.sqlite is empty"
+    pass "nix/var/nix/db/db.sqlite exists and is non-empty"
+
     # /etc/nix/nix.conf must exist (may be a symlink into /nix/store whose
     # target is not accessible in the build sandbox — check with -L not -e)
     [ -e "$sb/etc/nix/nix.conf" ] || [ -L "$sb/etc/nix/nix.conf" ] || fail "etc/nix/nix.conf missing"
