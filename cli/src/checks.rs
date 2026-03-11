@@ -129,6 +129,9 @@ pub fn check_disk_space(sys: &dyn System, path: &Path) -> CheckResult {
 /// and whether any required check failed.
 pub struct SystemCheckReport {
     pub results: Vec<CheckResult>,
+    /// The detected apptainer/singularity binary name, if found.
+    /// Used by status display and overlay operations.
+    #[allow(dead_code)]
     pub apptainer_binary: Option<String>,
     pub any_required_failed: bool,
 }
