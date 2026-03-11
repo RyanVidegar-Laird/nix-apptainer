@@ -33,6 +33,7 @@ runCommand "nix-apptainer-sandbox"
     nativeBuildInputs = [
       jq
       coreutils
+      nix
     ];
 
     passthru = {
@@ -55,6 +56,10 @@ runCommand "nix-apptainer-sandbox"
 
     # Copy nix-path-registration for DB init at first run
     cp ${closure}/registration $sandbox/nix-path-registration
+
+    # Initialize Nix store DB at build time so it's baked into the squashfs.
+    # Overlayfs copy-up handles writability at runtime.
+    NIX_STATE_DIR=$sandbox/nix/var/nix nix-store --load-db < $sandbox/nix-path-registration
 
     # Set up /etc from the NixOS etc derivation
     # The etc derivation produces a tree of symlinks into /nix/store
