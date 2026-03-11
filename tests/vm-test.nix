@@ -70,6 +70,27 @@ pkgs.testers.runNixOSTest {
         # Clean up so it doesn't interfere with later tests
         machine.succeed(f"rm {work}/fresh-overlay.img")
 
+    with subtest("Re-entry after copy-up preserves Nix DB access"):
+        # Reproduce the fuse-overlayfs access() bug: enter with overlay, run a
+        # Nix command (triggers copy-up of /nix/var/nix with 0755 via umask),
+        # then re-enter — entrypoint.sh chmod should restore 0777.
+        machine.succeed(
+            f"apptainer overlay create --sparse --size 64 {work}/reentry-overlay.img"
+        )
+        # First entry: run a Nix command via the runscript (entrypoint.sh)
+        machine.succeed(
+            f"apptainer run --overlay {work}/reentry-overlay.img {work}/base-nixos.sif "
+            "/usr/local/bin/nix path-info --all >/dev/null 2>&1"
+        )
+        # Second entry: Nix should still work despite copy-up degrading permissions
+        result = machine.succeed(
+            f"apptainer run --overlay {work}/reentry-overlay.img {work}/base-nixos.sif "
+            "/usr/local/bin/nix path-info --all 2>/dev/null | wc -l"
+        )
+        reentry_count = int(result.strip())
+        assert reentry_count > 0, f"Nix DB not accessible on re-entry, got {reentry_count} paths"
+        machine.succeed(f"rm {work}/reentry-overlay.img")
+
     with subtest("setup.sh --help"):
         machine.succeed(
             f"NIX_APPTAINER_SIF={work}/base-nixos.sif bash {work}/setup.sh --help"

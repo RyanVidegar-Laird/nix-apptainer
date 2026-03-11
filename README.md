@@ -180,6 +180,18 @@ cargo run -- status      # run CLI from source
 - Apptainer >= 1.1 (for running)
 - FUSE support on the host (`/dev/fuse` or `fusermount`)
 
+## Known issues
+
+### Nix DB "not writable" on re-entry
+
+On some systems, the second and subsequent container entries may fail with:
+
+```
+error: Nix database directory '/nix/var/nix/db' is not writable: Operation not permitted
+```
+
+The expected cause is that fuse-overlayfs's `access()` implementation checks raw mode bits without considering file ownership ([containers/fuse-overlayfs#232](https://github.com/containers/fuse-overlayfs/issues/232), [containers/fuse-overlayfs#374](https://github.com/containers/fuse-overlayfs/issues/374)). The base image sets `/nix/var/nix` to mode `0777` to accommodate this, but overlayfs copy-up during the first session reduces it to `0755` via umask. The container entrypoint restores the permissions at each startup as a workaround. Systems that use kernel overlayfs (rather than fuse-overlayfs) for the overlay merge are not affected.
+
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.

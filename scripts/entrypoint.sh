@@ -14,6 +14,10 @@ if [ -z "${TERM:-}" ] || ! infocmp "$TERM" >/dev/null 2>&1; then
     export TERM=xterm-256color
 fi
 
+# Restore 777 on /nix/var/nix — fuse-overlayfs access() needs world-writable
+# mode bits because it doesn't check ownership (see README "Known issues").
+chmod -R 777 /nix/var/nix 2>/dev/null || true
+
 # --- Execute command or interactive shell ---
 if [ $# -gt 0 ]; then
     exec "$@"
