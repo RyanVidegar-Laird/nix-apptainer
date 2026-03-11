@@ -5,6 +5,7 @@ use crate::checks;
 use crate::config::Config;
 use crate::container::{build_apptainer_args, ContainerMode, ContainerOpts};
 use crate::paths::AppPaths;
+use crate::system::RealSystem;
 
 pub struct EnterFlags {
     pub nv: bool,
@@ -14,6 +15,7 @@ pub struct EnterFlags {
 }
 
 pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
+    let sys = RealSystem;
     let paths = AppPaths::resolve()?;
     let config = Config::load(&paths.config_file)?;
 
@@ -30,7 +32,7 @@ pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
         );
     }
 
-    let apptainer = checks::apptainer_binary()
+    let apptainer = checks::apptainer_binary(&sys)
         .context("apptainer/singularity not found")?;
 
     let opts = ContainerOpts {

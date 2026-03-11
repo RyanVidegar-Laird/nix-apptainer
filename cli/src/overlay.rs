@@ -3,14 +3,15 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::checks;
+use crate::system::System;
 
 /// Create a sparse ext3 overlay image.
-pub fn create_overlay(path: &Path, size_mb: u64) -> anyhow::Result<()> {
+pub fn create_overlay(sys: &dyn System, path: &Path, size_mb: u64) -> anyhow::Result<()> {
     if size_mb < 64 {
         bail!("Overlay size must be at least 64 MB");
     }
 
-    let apptainer = checks::apptainer_binary()
+    let apptainer = checks::apptainer_binary(sys)
         .context("apptainer/singularity not found")?;
 
     if let Some(parent) = path.parent() {
@@ -31,8 +32,8 @@ pub fn create_overlay(path: &Path, size_mb: u64) -> anyhow::Result<()> {
 }
 
 /// Initialize the Nix store database inside the container.
-pub fn init_nix_db(sif_path: &Path, overlay_path: &Path) -> anyhow::Result<()> {
-    let apptainer = checks::apptainer_binary()
+pub fn init_nix_db(sys: &dyn System, sif_path: &Path, overlay_path: &Path) -> anyhow::Result<()> {
+    let apptainer = checks::apptainer_binary(sys)
         .context("apptainer/singularity not found")?;
 
     let status = Command::new(&apptainer)
