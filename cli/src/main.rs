@@ -99,6 +99,8 @@ enum Commands {
         #[arg(long)]
         overlay: bool,
     },
+    /// Verify the cryptographic signature of the installed SIF image
+    Verify,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -152,5 +154,6 @@ fn main() -> anyhow::Result<()> {
             cache,
             overlay,
         }),
+        Commands::Verify => commands::verify::run(),
     }
 }
