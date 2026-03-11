@@ -22,7 +22,6 @@ pub struct ContainerOpts<'a> {
 /// Build the argument list for an apptainer run/exec invocation.
 ///
 /// Returns a `Vec<String>` of arguments to pass after the apptainer binary name.
-/// For `Exec` mode, the caller must append the command to run after calling this.
 pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<String> {
     let mut args: Vec<String> = Vec::new();
 
