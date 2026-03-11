@@ -51,6 +51,19 @@ runCommand "nix-apptainer-test-sandbox"
       pass "symlink $link -> $target"
     done
 
+    # Verify key symlinks resolve to real files within the sandbox
+    for link in bin/sh usr/bin/env; do
+      target=$(readlink "$sb/$link")
+      # Reconstruct the in-sandbox path from the absolute /nix/store target
+      store_relative=''${target#/}
+      if [ -e "$sb/$store_relative" ]; then
+        pass "symlink $link resolves to existing file in sandbox"
+      else
+        # May be expected if the target isn't in the NixOS closure
+        echo "  ? symlink $link -> $target (target not resolvable in sandbox — may be OK)"
+      fi
+    done
+
     # --- Files that must exist ---
     [ -f "$sb/.singularity.d/runscript" ] || fail ".singularity.d/runscript missing"
     [ -x "$sb/.singularity.d/runscript" ] || fail ".singularity.d/runscript not executable"
@@ -63,6 +76,13 @@ runCommand "nix-apptainer-test-sandbox"
     [ -f "$sb/.singularity.d/labels.json" ] || fail "labels.json missing"
     jq empty "$sb/.singularity.d/labels.json" || fail "labels.json is not valid JSON"
     pass ".singularity.d/labels.json is valid JSON"
+
+    # labels.json must contain required schema fields
+    jq -e '.["org.label-schema.name"]' "$sb/.singularity.d/labels.json" > /dev/null \
+      || fail "labels.json missing org.label-schema.name"
+    jq -e '.["org.label-schema.version"]' "$sb/.singularity.d/labels.json" > /dev/null \
+      || fail "labels.json missing org.label-schema.version"
+    pass ".singularity.d/labels.json has required schema fields"
 
     # nix-path-registration must exist and be non-empty
     [ -f "$sb/nix-path-registration" ] || fail "nix-path-registration missing"

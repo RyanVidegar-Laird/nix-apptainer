@@ -30,7 +30,7 @@
           };
 
           buildSandbox = pkgs.callPackage ./lib/build-sandbox.nix { };
-          sandbox = buildSandbox { nixosConfig = nixos; };
+          sandbox = buildSandbox { nixosConfig = nixos; inherit version; };
 
           buildSif = pkgs.callPackage ./lib/build-sif.nix { };
           sifImage = buildSif { inherit sandbox; };
