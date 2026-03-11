@@ -104,6 +104,23 @@ pkgs.testers.runNixOSTest {
         )
         assert "container-works" in result, f"Expected 'container-works', got: {result}"
 
+    with subtest("Bind mount passes host path into container"):
+        machine.succeed(f"mkdir -p /tmp/bind-test && echo 'bind-data' > /tmp/bind-test/file.txt")
+        result = machine.succeed(
+            f"NIX_APPTAINER_SIF={work}/base-nixos.sif "
+            f"NIX_APPTAINER_OVERLAY={work}/overlay.img "
+            f"bash {work}/enter.sh exec --bind /tmp/bind-test:/mnt/test -- "
+            f"/bin/sh -c 'cat /mnt/test/file.txt'"
+        )
+        assert "bind-data" in result, f"Expected 'bind-data' in output, got: {result}"
+
+    with subtest("Status information is queryable"):
+        machine.succeed(f"test -f {work}/base-nixos.sif")
+        machine.succeed(f"test -f {work}/overlay.img")
+        result_stat = machine.succeed(f"stat --format='%s' {work}/overlay.img")
+        overlay_size = int(result_stat.strip())
+        assert overlay_size > 0, f"Overlay has zero size: {overlay_size}"
+
     with subtest("Persistence across container restarts"):
         result2 = machine.succeed(
             f"apptainer exec --overlay {work}/overlay.img {work}/base-nixos.sif "
@@ -131,5 +148,21 @@ pkgs.testers.runNixOSTest {
         )
         path_count3 = int(result3.strip())
         assert path_count3 > 0, "Store corrupted after overlay exhaustion"
+
+    with subtest("Container still functional after overlay exhaustion"):
+        result4 = machine.succeed(
+            f"apptainer exec --overlay {work}/overlay.img {work}/base-nixos.sif "
+            f"/bin/sh -c 'echo still-works'"
+        )
+        assert "still-works" in result4, f"Expected 'still-works', got: {result4}"
+
+    with subtest("Cleanup removes overlay"):
+        machine.succeed(f"rm {work}/overlay.img")
+        machine.fail(f"test -f {work}/overlay.img")
+        machine.succeed(
+            f"cd {work} && NIX_APPTAINER_SIF={work}/base-nixos.sif "
+            f"bash {work}/setup.sh --size 64 --sif {work}/base-nixos.sif --overlay {work}/overlay.img"
+        )
+        machine.succeed(f"test -f {work}/overlay.img")
   '';
 }
