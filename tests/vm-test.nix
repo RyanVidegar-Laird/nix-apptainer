@@ -63,7 +63,7 @@ pkgs.testers.runNixOSTest {
         )
         result = machine.succeed(
             f"apptainer exec --overlay {work}/fresh-overlay.img {work}/base-nixos.sif "
-            f"/usr/local/bin/nix path-info --all 2>/dev/null | wc -l"
+            "/usr/local/bin/nix path-info --all 2>/dev/null | wc -l"
         )
         path_count_fresh = int(result.strip())
         assert path_count_fresh > 0, f"Expected store paths > 0 with fresh overlay, got {path_count_fresh}"
@@ -92,7 +92,7 @@ pkgs.testers.runNixOSTest {
     with subtest("Nix store has paths after setup"):
         result = machine.succeed(
             f"apptainer exec --overlay {work}/overlay.img {work}/base-nixos.sif "
-            f"/usr/local/bin/nix path-info --all 2>/dev/null | wc -l"
+            "/usr/local/bin/nix path-info --all 2>/dev/null | wc -l"
         )
         path_count = int(result.strip())
         assert path_count > 0, f"Expected store paths > 0, got {path_count}"
@@ -106,7 +106,7 @@ pkgs.testers.runNixOSTest {
 
     with subtest("enter.sh fails on missing SIF"):
         machine.fail(
-            f"NIX_APPTAINER_SIF=/nonexistent.sif "
+            "NIX_APPTAINER_SIF=/nonexistent.sif "
             f"NIX_APPTAINER_OVERLAY={work}/overlay.img "
             f"bash {work}/enter.sh"
         )
@@ -120,12 +120,12 @@ pkgs.testers.runNixOSTest {
         assert "container-works" in result, f"Expected 'container-works', got: {result}"
 
     with subtest("Bind mount passes host path into container"):
-        machine.succeed(f"mkdir -p /tmp/bind-test && echo 'bind-data' > /tmp/bind-test/file.txt")
+        machine.succeed("mkdir -p /tmp/bind-test && echo 'bind-data' > /tmp/bind-test/file.txt")
         result = machine.succeed(
             f"NIX_APPTAINER_SIF={work}/base-nixos.sif "
             f"NIX_APPTAINER_OVERLAY={work}/overlay.img "
-            f"bash {work}/enter.sh exec --bind /tmp/bind-test:/mnt/test -- "
-            f"/bin/sh -c 'cat /mnt/test/file.txt'"
+            f"bash {work}/enter.sh --bind /tmp/bind-test:/mnt/test exec "
+            "/bin/sh -c 'cat /mnt/test/file.txt'"
         )
         assert "bind-data" in result, f"Expected 'bind-data' in output, got: {result}"
 
@@ -139,7 +139,7 @@ pkgs.testers.runNixOSTest {
     with subtest("Persistence across container restarts"):
         result2 = machine.succeed(
             f"apptainer exec --overlay {work}/overlay.img {work}/base-nixos.sif "
-            f"/usr/local/bin/nix path-info --all 2>/dev/null | wc -l"
+            "/usr/local/bin/nix path-info --all 2>/dev/null | wc -l"
         )
         path_count2 = int(result2.strip())
         assert path_count2 == path_count, (
@@ -151,15 +151,15 @@ pkgs.testers.runNixOSTest {
         # This should fail (ENOSPC) but not corrupt the existing DB.
         machine.fail(
             f"apptainer exec --overlay {work}/overlay.img {work}/base-nixos.sif "
-            f"/usr/local/bin/nix build --no-link --expr "
-            "'\"(import <nixpkgs> {{}}).hello\"' "
+            "/usr/local/bin/nix build --no-link --expr "
+            "'\"(import <nixpkgs> {}).hello\"' "
             "2>/dev/null"
         )
 
         # Verify existing paths are still queryable (no corruption)
         result3 = machine.succeed(
             f"apptainer exec --overlay {work}/overlay.img {work}/base-nixos.sif "
-            f"/usr/local/bin/nix path-info --all 2>/dev/null | wc -l"
+            "/usr/local/bin/nix path-info --all 2>/dev/null | wc -l"
         )
         path_count3 = int(result3.strip())
         assert path_count3 > 0, "Store corrupted after overlay exhaustion"
@@ -167,7 +167,7 @@ pkgs.testers.runNixOSTest {
     with subtest("Container still functional after overlay exhaustion"):
         result4 = machine.succeed(
             f"apptainer exec --overlay {work}/overlay.img {work}/base-nixos.sif "
-            f"/bin/sh -c 'echo still-works'"
+            "/bin/sh -c 'echo still-works'"
         )
         assert "still-works" in result4, f"Expected 'still-works', got: {result4}"
 
