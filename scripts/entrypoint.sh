@@ -4,18 +4,8 @@
 
 set -euo pipefail
 
-# --- First-run: initialize Nix store database ---
-# The nix-path-registration file contains the base image's store path
-# metadata. We load it into the SQLite database on first run so that
-# nix knows about all the pre-installed packages.
-if [ -f /nix-path-registration ] && [ ! -f /nix/var/nix/db/db.sqlite ]; then
-    echo "nix-apptainer: First run detected. Initializing Nix store database..."
-    /usr/local/bin/nix-store --load-db < /nix-path-registration
-    echo "nix-apptainer: Store database initialized."
-fi
-
-# Ensure PATH includes nix and system tools (needed for nix-store below
-# and for the TERM check; the login shell will get full PATH from /etc/profile)
+# Ensure PATH includes nix and system tools (needed for the TERM check;
+# the login shell will get full PATH from /etc/profile)
 export PATH="/usr/local/bin:/run/sw/bin:/bin:/usr/bin:${PATH:-}"
 export NIX_REMOTE=""
 
