@@ -2,10 +2,12 @@ use crate::checks;
 use crate::config::Config;
 use crate::paths::AppPaths;
 use crate::state::State;
+use crate::system::RealSystem;
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 
 pub fn run() -> anyhow::Result<()> {
+    let sys = RealSystem;
     let paths = AppPaths::resolve()?;
     let config = Config::load(&paths.config_file)?;
     let state = State::load(&paths.state_file)?;
@@ -42,7 +44,7 @@ pub fn run() -> anyhow::Result<()> {
 
     // Apptainer
     let apptainer_info = {
-        let r = checks::find_apptainer();
+        let r = checks::find_apptainer(&sys);
         if r.passed { r.message } else { "not found".to_string() }
     };
 

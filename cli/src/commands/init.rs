@@ -9,6 +9,7 @@ use crate::overlay;
 use crate::paths::AppPaths;
 use crate::sif::{self, SifSource};
 use crate::state::State;
+use crate::system::RealSystem;
 
 /// CLI flags for non-interactive init.
 pub struct InitFlags {
@@ -95,6 +96,7 @@ fn save_init_state(
 }
 
 pub fn run(flags: InitFlags) -> anyhow::Result<()> {
+    let sys = RealSystem;
     println!("Checking system requirements...\n");
 
     // Determine data dir early so we can check disk space there
@@ -105,7 +107,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     };
 
     // --- System checks ---
-    let report = checks::run_all_checks(&paths.data_dir);
+    let report = checks::run_all_checks(&sys, &paths.data_dir);
     for r in &report.results {
         let icon = if r.passed {
             "\u{2713}"
@@ -158,7 +160,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     };
 
     // Show disk space at chosen location
-    let disk_check = checks::check_disk_space(&paths.data_dir);
+    let disk_check = checks::check_disk_space(&sys, &paths.data_dir);
     println!("  Disk space: {}", disk_check.message);
     println!();
 
@@ -231,18 +233,18 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
         if should_recreate {
             std::fs::remove_file(&paths.overlay_path)?;
             println!("Creating overlay ({overlay_size} MB, sparse)...");
-            overlay::create_overlay(&paths.overlay_path, overlay_size)?;
+            overlay::create_overlay(&sys, &paths.overlay_path, overlay_size)?;
         } else {
             println!("Keeping existing overlay.");
         }
     } else {
         println!("Creating overlay ({overlay_size} MB, sparse)...");
-        overlay::create_overlay(&paths.overlay_path, overlay_size)?;
+        overlay::create_overlay(&sys, &paths.overlay_path, overlay_size)?;
     }
 
     // --- Initialize Nix DB ---
     println!("Initializing Nix store database...");
-    overlay::init_nix_db(&paths.sif_path, &paths.overlay_path)?;
+    overlay::init_nix_db(&sys, &paths.sif_path, &paths.overlay_path)?;
 
     // --- Save config and state ---
     save_init_state(&paths, &sif_source, overlay_size, &version, hash)?;
