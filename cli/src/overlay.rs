@@ -32,26 +32,3 @@ pub fn create_overlay(sys: &dyn System, path: &Path, size_mb: u64) -> anyhow::Re
     Ok(())
 }
 
-/// Initialize the Nix store database inside the container.
-/// Runs `nix-store --load-db` via apptainer exec if the DB doesn't already exist.
-pub fn init_nix_db(sys: &dyn System, sif_path: &Path, overlay_path: &Path) -> anyhow::Result<()> {
-    let apptainer = checks::apptainer_binary(sys)
-        .context("apptainer/singularity not found")?;
-
-    let overlay_str = overlay_path.to_string_lossy();
-    let sif_str = sif_path.to_string_lossy();
-    let status = sys.run_command(
-        &apptainer,
-        &[
-            "exec", "--overlay", &overlay_str, &sif_str,
-            "/bin/sh", "-c",
-            "if [ -f /nix-path-registration ] && [ ! -f /nix/var/nix/db/db.sqlite ]; then /usr/local/bin/nix-store --load-db < /nix-path-registration && echo 'Store database initialized.' ; else echo 'Store database already exists or no registration file found.' ; fi"
-        ],
-    ).with_context(|| format!("Failed to run {apptainer} exec"))?;
-
-    if !status.success() {
-        bail!("Nix store database initialization failed");
-    }
-
-    Ok(())
-}
