@@ -125,6 +125,8 @@ pub fn check_disk_space(sys: &dyn System, path: &Path) -> CheckResult {
 }
 
 /// Results of running all system checks.
+/// Contains individual check results, the detected apptainer binary name,
+/// and whether any required check failed.
 pub struct SystemCheckReport {
     pub results: Vec<CheckResult>,
     pub apptainer_binary: Option<String>,

@@ -5,7 +5,8 @@ use std::process::Command;
 use crate::checks;
 use crate::system::System;
 
-/// Create a sparse ext3 overlay image.
+/// Create a sparse ext3 overlay image at the given path.
+/// Requires apptainer/singularity on PATH. Minimum size is 64 MB.
 pub fn create_overlay(sys: &dyn System, path: &Path, size_mb: u64) -> anyhow::Result<()> {
     if size_mb < 64 {
         bail!("Overlay size must be at least 64 MB");
@@ -32,6 +33,7 @@ pub fn create_overlay(sys: &dyn System, path: &Path, size_mb: u64) -> anyhow::Re
 }
 
 /// Initialize the Nix store database inside the container.
+/// Runs `nix-store --load-db` via apptainer exec if the DB doesn't already exist.
 pub fn init_nix_db(sys: &dyn System, sif_path: &Path, overlay_path: &Path) -> anyhow::Result<()> {
     let apptainer = checks::apptainer_binary(sys)
         .context("apptainer/singularity not found")?;

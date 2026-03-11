@@ -112,6 +112,7 @@ pub fn parse_release_response(resp: &serde_json::Value) -> anyhow::Result<Releas
 }
 
 /// Query the GitHub API for the latest release containing a .sif asset.
+/// Returns release info including download URLs and optional SHA256SUMS URL.
 pub fn fetch_latest_release(repo: &str) -> anyhow::Result<ReleaseInfo> {
     let url = format!("https://api.github.com/repos/{repo}/releases/latest");
     let client = reqwest::blocking::Client::builder()
@@ -129,7 +130,8 @@ pub fn fetch_latest_release(repo: &str) -> anyhow::Result<ReleaseInfo> {
     parse_release_response(&resp)
 }
 
-/// Download a file with a progress bar. Returns the SHA256 digest.
+/// Download a file from a URL with a progress bar.
+/// Creates parent directories if needed. Returns the SHA256 digest of the downloaded content.
 pub fn download_file(url: &str, dest: &Path) -> anyhow::Result<Sha256Digest> {
     let client = reqwest::blocking::Client::builder()
         .user_agent("nix-apptainer")
@@ -173,7 +175,8 @@ pub fn download_file(url: &str, dest: &Path) -> anyhow::Result<Sha256Digest> {
     Ok(Sha256Digest::from_hasher(hasher))
 }
 
-/// Copy a local SIF file and compute its SHA256.
+/// Copy a local SIF file to the destination and compute its SHA256 digest.
+/// Fails if the source file does not exist.
 pub fn copy_local_sif(src: &str, dest: &Path) -> anyhow::Result<Sha256Digest> {
     let src_path = Path::new(src);
     if !src_path.exists() {
