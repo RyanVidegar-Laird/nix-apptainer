@@ -59,6 +59,11 @@ let
         chmod -R u+w rootfs/nix/var rootfs/nix/store rootfs/home \
           rootfs/tmp rootfs/var rootfs/root rootfs/etc
 
+        # Some fuse-overlayfs versions report EPERM from access(path, W_OK)
+        # on 755 dirs even when owned by the caller. Nix checks this on
+        # /nix/var/nix/db, so make these dirs world-writable in the squashfs.
+        chmod -R 777 rootfs/nix/var/nix
+
         mksquashfs rootfs $out \
           -no-hardlinks \
           -all-root \

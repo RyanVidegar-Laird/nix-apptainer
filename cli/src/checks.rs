@@ -61,25 +61,6 @@ pub fn check_fuse(sys: &dyn System) -> CheckResult {
     }
 }
 
-/// Check for fuse-overlayfs binary.
-pub fn check_fuse_overlayfs(sys: &dyn System) -> CheckResult {
-    if sys.command_version("fuse-overlayfs", "--version").is_some() {
-        CheckResult {
-            name: "fuse-overlayfs".to_string(),
-            passed: true,
-            message: "available".to_string(),
-            required: true,
-        }
-    } else {
-        CheckResult {
-            name: "fuse-overlayfs".to_string(),
-            passed: false,
-            message: "Not found on PATH. Required for overlay mounts.".to_string(),
-            required: true,
-        }
-    }
-}
-
 /// Check for fakeroot support.
 pub fn check_fakeroot(sys: &dyn System) -> CheckResult {
     if sys.command_version("fakeroot", "--version").is_some() {
@@ -141,7 +122,6 @@ pub fn run_all_checks(sys: &dyn System, data_path: &Path) -> SystemCheckReport {
     let results = vec![
         find_apptainer(sys),
         check_fuse(sys),
-        check_fuse_overlayfs(sys),
         check_fakeroot(sys),
         check_disk_space(sys, data_path),
     ];
@@ -170,7 +150,6 @@ mod tests {
             let mut commands = std::collections::HashMap::new();
             commands.insert("apptainer".to_string(), "apptainer version 1.3.0".to_string());
             commands.insert("fusermount3".to_string(), "fusermount3 version 3.16.1".to_string());
-            commands.insert("fuse-overlayfs".to_string(), "fuse-overlayfs 1.13".to_string());
             Self {
                 commands,
                 disk_bytes: Some(10 * 1_073_741_824),
