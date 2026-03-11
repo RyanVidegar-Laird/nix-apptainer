@@ -15,6 +15,8 @@
 {
   # The NixOS system configuration (evaluated)
   nixosConfig,
+  # Version string for labels.json
+  version ? "dev",
 }:
 
 let
@@ -118,11 +120,12 @@ runCommand "nix-apptainer-sandbox"
     ENV
     chmod +x $sandbox/.singularity.d/env/90-environment.sh
 
-    cat > $sandbox/.singularity.d/labels.json <<'LABELS'
-    {
-      "org.label-schema.schema-version": "1.0",
-      "org.label-schema.name": "nix-apptainer",
-      "org.label-schema.description": "Minimal NixOS container with single-user Nix for HPC"
-    }
-    LABELS
+    jq -n \
+      --arg version "${version}" \
+      '{
+        "org.label-schema.schema-version": "1.0",
+        "org.label-schema.name": "nix-apptainer",
+        "org.label-schema.version": $version,
+        "org.label-schema.description": "Minimal NixOS container with single-user Nix for HPC"
+      }' > $sandbox/.singularity.d/labels.json
   ''
