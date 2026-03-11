@@ -91,6 +91,11 @@ runCommand "nix-apptainer-sandbox"
     ln -s ${bashInteractive}/bin/bash $sandbox/bin/bash
     ln -s ${coreutils}/bin/env $sandbox/usr/bin/env
 
+    # FHS compatibility: host dotfiles (bind-mounted via $HOME) often reference
+    # /usr/share/ paths (bash-completion, terminfo, man, etc.) that don't exist
+    # on NixOS. Symlink to the NixOS system path so these references resolve.
+    ln -s /run/sw/share $sandbox/usr/share
+
     ln -s ${toplevel} $sandbox/run/current-system
 
     # System PATH — the NixOS system.path (merged environment.systemPackages)
