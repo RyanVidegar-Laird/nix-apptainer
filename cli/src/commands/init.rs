@@ -86,11 +86,12 @@ fn save_init_state(
     };
     config.save(&paths.config_file)?;
 
-    let state = State {
+    let mut state = State {
         sif_version: version.to_string(),
         sif_sha256: hash,
-        last_update_check: crate::util::timestamp_now(),
+        ..State::default()
     };
+    state.touch_update_check();
     state.save(&paths.state_file)?;
     Ok(())
 }

@@ -74,11 +74,12 @@ pub fn run(flags: UpdateFlags) -> anyhow::Result<()> {
         }
     }
 
-    let new_state = State {
+    let mut new_state = State {
         sif_version: release.tag.clone(),
         sif_sha256: hash,
-        last_update_check: crate::util::timestamp_now(),
+        ..State::default()
     };
+    new_state.touch_update_check();
     new_state.save(&paths.state_file)?;
 
     println!("\nUpdated to {}.", release.tag);
