@@ -55,6 +55,21 @@ pkgs.testers.runNixOSTest {
         )
         assert "hello" in result, f"Expected 'hello' in output, got: {result}"
 
+    with subtest("Nix store is queryable with fresh overlay (no explicit DB init)"):
+        # Create a fresh overlay — do NOT run setup.sh or any DB init.
+        # The build-time DB in the squashfs should be sufficient.
+        machine.succeed(
+            f"apptainer overlay create --sparse --size 64 {work}/fresh-overlay.img"
+        )
+        result = machine.succeed(
+            f"apptainer exec --overlay {work}/fresh-overlay.img {work}/base-nixos.sif "
+            f"/usr/local/bin/nix path-info --all 2>/dev/null | wc -l"
+        )
+        path_count_fresh = int(result.strip())
+        assert path_count_fresh > 0, f"Expected store paths > 0 with fresh overlay, got {path_count_fresh}"
+        # Clean up so it doesn't interfere with later tests
+        machine.succeed(f"rm {work}/fresh-overlay.img")
+
     with subtest("setup.sh --help"):
         machine.succeed(
             f"NIX_APPTAINER_SIF={work}/base-nixos.sif bash {work}/setup.sh --help"
