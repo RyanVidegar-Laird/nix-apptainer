@@ -64,20 +64,6 @@ echo "Creating sparse ext3 overlay (${OVERLAY_SIZE} MB)..."
 apptainer overlay create --sparse --size "$OVERLAY_SIZE" "$OVERLAY_PATH"
 echo "Overlay created at $OVERLAY_PATH"
 
-# --- Initialize Nix store database ---
-echo "Initializing Nix store database in overlay..."
-apptainer exec \
-    --overlay "$OVERLAY_PATH" \
-    "$SIF_PATH" \
-    /bin/sh -c '
-        if [ -f /nix-path-registration ] && [ ! -f /nix/var/nix/db/db.sqlite ]; then
-            /usr/local/bin/nix-store --load-db < /nix-path-registration
-            echo "Store database initialized."
-        else
-            echo "Store database already exists or no registration file found."
-        fi
-    '
-
 echo ""
 echo "Setup complete! Enter the container with:"
 echo "  ./enter.sh"
