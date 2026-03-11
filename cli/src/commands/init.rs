@@ -243,10 +243,6 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
         overlay::create_overlay(&sys, &paths.overlay_path, overlay_size)?;
     }
 
-    // --- Initialize Nix DB ---
-    println!("Initializing Nix store database...");
-    overlay::init_nix_db(&sys, &paths.sif_path, &paths.overlay_path)?;
-
     // --- Save config and state ---
     save_init_state(&paths, &sif_source, overlay_size, &version, hash)?;
 
