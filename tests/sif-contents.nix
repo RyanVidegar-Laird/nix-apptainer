@@ -42,7 +42,8 @@ runCommand "nix-apptainer-test-sif"
       etc/hostname \
       .singularity.d/runscript \
       usr/local/bin/nix \
-      nix-path-registration
+      nix-path-registration \
+      nix/var/nix/db/db.sqlite
     do
       # Use -e or -L: some paths are symlinks into /nix/store whose targets
       # are dangling in the extracted squashfs (the store paths are there but
