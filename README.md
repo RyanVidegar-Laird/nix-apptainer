@@ -2,73 +2,28 @@
 
 [![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2FRyanVidegar-Laird%2Fnix-apptainer)](https://garnix.io/repo/RyanVidegar-Laird/nix-apptainer)
 
-Apptainer container image with a minimal NixOS system and single-user Nix for HPC environments. Users get a portable shell where they can `nix develop`, `nix build`, and use flakes on clusters that don't have Nix installed.
+Apptainer container image with a minimal NixOS system and single-user Nix for HPC environments. This acts as a shim / portable shell where a persistant, writable, `/nix/store` is availble where `nix*` commands (including flakes) are availble.
 
 ## Quick start
 
-### Install
-
-Download the CLI binary and base SIF for your architecture from [GitHub Releases](https://github.com/RyanVidegar-Laird/nix-apptainer/releases):
+Download the CLI binary for your architecture from [GitHub Releases](https://github.com/RyanVidegar-Laird/nix-apptainer/releases):
 
 ```bash
 ARCH=$(uname -m)  # x86_64 or aarch64
-REPO=https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download
-
-curl -LO "$REPO/nix-apptainer-${ARCH}-linux"
-curl -LO "$REPO/base-nixos-${ARCH}-linux.sif"
-chmod +x "nix-apptainer-${ARCH}-linux"
-mv "nix-apptainer-${ARCH}-linux" nix-apptainer
+curl -Lo nix-apptainer "https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download/nix-apptainer-${ARCH}-linux"
+chmod +x nix-apptainer
 ```
 
-Optionally verify signatures and checksums:
+Set up and enter:
+
+> **Note:** `apptainer` must be available on the system. On HPC clusters, this may require being on an interactive node.
 
 ```bash
-curl -sL "$REPO/signing-key.asc" | gpg --import
-curl -LO "$REPO/SHA256SUMS" && curl -LO "$REPO/SHA256SUMS.sig"
-
-gpg --verify SHA256SUMS.sig SHA256SUMS
-sha256sum --ignore-missing -c SHA256SUMS
-apptainer verify "base-nixos-${ARCH}-linux.sif"
+nix-apptainer init       # downloads base image, creates writable overlay
+nix-apptainer enter      # launch an interactive shell
 ```
 
-Or build from source:
-
-```bash
-git clone https://github.com/RyanVidegar-Laird/nix-apptainer.git
-cd nix-apptainer
-nix build .#cli -o cli-result    # static CLI binary
-nix build -o sif-result          # base SIF image
-```
-
-### Set up (one-time)
-
-```bash
-# Interactive guided setup — downloads the base image, creates overlay, initializes Nix DB
-nix-apptainer init
-
-# Or non-interactive with a local SIF
-nix-apptainer init --sif ./base-nixos.sif --yes
-
-# Or with a custom data directory (useful on HPC scratch filesystems)
-nix-apptainer init --data-dir /scratch/$USER/nix-apptainer --yes
-```
-
-### Enter the container
-
-```bash
-nix-apptainer enter
-
-# With NVIDIA GPU passthrough
-nix-apptainer enter --nv
-
-# With bind mounts
-nix-apptainer enter -B /scratch:/scratch
-
-# Run a single command
-nix-apptainer exec -- nix develop
-```
-
-### Use Nix inside
+Use Nix inside:
 
 ```bash
 nix --version
@@ -88,6 +43,15 @@ nix-apptainer clean              # interactive cleanup
 nix-apptainer clean --all        # remove everything
 ```
 
+### Options
+
+```bash
+nix-apptainer enter --nv                 # NVIDIA GPU passthrough
+nix-apptainer enter -B /scratch:/scratch # bind mounts
+nix-apptainer enter --quiet              # suppress apptainer warnings
+nix-apptainer exec -- nix develop        # run a single command
+```
+
 ## How it works
 
 The base image is a read-only squashfs containing a minimal NixOS system. A sparse ext3 overlay file stores all user modifications (installed packages, profiles, home directory). Apptainer merges them at runtime via overlayfs.
@@ -100,6 +64,10 @@ base-nixos.sif (read-only)     overlay.img (writable, sparse)
 └── /.singularity.d/           └── ...
          └──── overlayfs merge ────┘
 ```
+
+Nix builds inside the container use [nix-output-monitor](https://github.com/maralorn/nix-output-monitor) by default for cleaner output. A wrapper at `/usr/local/bin/nix` routes supported subcommands through `nom` on interactive terminals. Bypass with `NIX_APPTAINER_NO_NOM=1` or call `/run/sw/bin/nix` directly.
+
+The Nix build sandbox is enabled with fallback — on hosts that support user namespaces, builds are isolated; otherwise they run unsandboxed with a one-time warning.
 
 ## Configuration
 
@@ -130,6 +98,7 @@ size_mb = 51200                      # sparse overlay size in MB
 [enter]
 gpu = "nvidia"                       # "", "nvidia", or "rocm"
 bind = ["/scratch:/scratch", "/data:/data"]
+quiet = false                        # suppress apptainer stderr warnings
 ```
 
 ## Distributing to teammates
@@ -144,16 +113,9 @@ cp base-nixos.sif /shared/containers/
 /shared/containers/nix-apptainer enter
 ```
 
-## Manual setup (shell scripts)
+## Examples
 
-For advanced users or environments where the CLI is not available, the shell scripts in `scripts/` provide the same functionality:
-
-```bash
-./scripts/setup.sh --sif ./base-nixos.sif    # one-time setup
-./scripts/enter.sh --sif ./base-nixos.sif    # enter container
-./scripts/enter.sh --nv                       # with NVIDIA GPU
-./scripts/enter.sh exec nix develop           # run a command
-```
+See [examples/bioinformatics/](examples/bioinformatics/) for a multi-environment flake demonstrating R, Python, and samtools dev shells with direnv auto-loading.
 
 ## Development
 
@@ -165,13 +127,40 @@ nix build .#cli          # build the static CLI binary
 nix flake check          # run all checks (eval, shellcheck, sandbox, sif, cli tests)
 ```
 
-### CLI development
+### Build from source
 
 ```bash
-cd cli
-cargo test               # run unit tests
-cargo clippy             # run linter
-cargo run -- status      # run CLI from source
+git clone https://github.com/RyanVidegar-Laird/nix-apptainer.git
+cd nix-apptainer
+nix build .#cli -o cli-result    # static CLI binary
+nix build -o sif-result          # base SIF image
+```
+
+### Manual setup (shell scripts)
+
+For advanced users or environments where the CLI is not available, the shell scripts in `scripts/` provide the same functionality:
+
+```bash
+./scripts/setup.sh --sif ./base-nixos.sif    # one-time setup
+./scripts/enter.sh --sif ./base-nixos.sif    # enter container
+./scripts/enter.sh --nv                       # with NVIDIA GPU
+./scripts/enter.sh exec nix develop           # run a command
+```
+
+### Verification
+
+Verify signatures and checksums of release artifacts:
+
+```bash
+ARCH=$(uname -m)
+REPO=https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download
+
+curl -sL "$REPO/signing-key.asc" | gpg --import
+curl -LO "$REPO/SHA256SUMS" && curl -LO "$REPO/SHA256SUMS.sig"
+
+gpg --verify SHA256SUMS.sig SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
+apptainer verify "base-nixos-${ARCH}-linux.sif"
 ```
 
 ## Requirements
