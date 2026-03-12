@@ -39,8 +39,7 @@ runCommand "nix-apptainer-test-sandbox"
       bin/sh \
       usr/bin/env \
       run/current-system \
-      run/sw \
-      usr/local/bin/nix
+      run/sw
     do
       [ -L "$sb/$link" ] || fail "$link is not a symlink"
       target=$(readlink "$sb/$link")
@@ -50,6 +49,13 @@ runCommand "nix-apptainer-test-sandbox"
       echo "$target" | grep -q "^/nix/store/" || fail "$link -> $target does not point into /nix/store"
       pass "symlink $link -> $target"
     done
+
+    # --- Nom wrapper must be a script, not a symlink ---
+    [ -f "$sb/usr/local/bin/nix" ] || fail "usr/local/bin/nix missing"
+    [ -x "$sb/usr/local/bin/nix" ] || fail "usr/local/bin/nix not executable"
+    [ ! -L "$sb/usr/local/bin/nix" ] || fail "usr/local/bin/nix should be a script, not a symlink"
+    head -1 "$sb/usr/local/bin/nix" | grep -q "^#!/bin/sh" || fail "usr/local/bin/nix missing shebang"
+    pass "usr/local/bin/nix is a nom wrapper script"
 
     # Verify key symlinks resolve to real files within the sandbox
     for link in bin/sh usr/bin/env; do
@@ -117,6 +123,11 @@ runCommand "nix-apptainer-test-sandbox"
     store_count=$(ls -1 "$sb/nix/store" | wc -l)
     [ "$store_count" -gt 0 ] || fail "nix/store is empty"
     pass "nix/store contains store paths ($store_count entries)"
+
+    # --- 90-environment.sh must have enriched TERMINFO_DIRS ---
+    grep -q "/usr/share/terminfo" "$sb/.singularity.d/env/90-environment.sh" \
+      || fail "90-environment.sh missing /usr/share/terminfo in TERMINFO_DIRS"
+    pass "90-environment.sh has enriched TERMINFO_DIRS"
 
     echo ""
     echo "All sandbox structure checks passed."
