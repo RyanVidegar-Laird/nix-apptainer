@@ -15,15 +15,18 @@ A set of quality-of-life improvements to the nix-apptainer container and an exam
 
 **Solution**: A POSIX shell wrapper at `/usr/local/bin/nix` that transparently routes nom-compatible subcommands through `nix-output-monitor` on interactive terminals.
 
+**Prerequisite**: Add `pkgs.nix` to `environment.systemPackages` so the real nix binary is available at `/run/sw/bin/nix`. The existing `/usr/local/bin/nix` symlink in `build-sandbox.nix` will be replaced by the wrapper script.
+
 **Behavior**:
 - If `NIX_APPTAINER_NO_NOM` is set (any value), exec real nix
 - If stdout is not a terminal (`! [ -t 1 ]`), exec real nix
+- If `nom` is not found (`! command -v nom`), exec real nix (safety fallback)
 - If subcommand is one of: `build`, `develop`, `shell`, `flake`, `run` — exec `nom` with all args
 - Otherwise, exec real nix at `/run/sw/bin/nix`
 
 **Changes**:
-- Add `nix-output-monitor` to `environment.systemPackages` in `nixos/configuration.nix`
-- New wrapper script installed by `lib/build-sandbox.nix` to `/usr/local/bin/nix`
+- Add `nix-output-monitor` and `pkgs.nix` to `environment.systemPackages` in `nixos/configuration.nix`
+- Replace the existing `/usr/local/bin/nix` symlink in `lib/build-sandbox.nix` with the wrapper script
 - `/usr/local/bin` is already first in PATH (set in `90-environment.sh` and `entrypoint.sh`)
 
 **Escape hatch**: `/run/sw/bin/nix` is always the real binary. `NIX_APPTAINER_NO_NOM=1` disables the wrapper globally.
@@ -41,7 +44,7 @@ A set of quality-of-life improvements to the nix-apptainer container and an exam
 **Runtime warning in `scripts/entrypoint.sh`**:
 - Probe namespace support: `unshare -U true 2>/dev/null`
 - If it fails, print: `Warning: Nix build sandbox unavailable (user namespaces not supported on this host). Builds will run unsandboxed.`
-- Cache result in `/tmp/.nix-apptainer-sandbox-checked` — warn once per session
+- Cache result in `/run/.nix-apptainer-sandbox-checked` — `/run` is a tmpfs inside the container, so the cache is per-session (cleared when the container exits), unlike `/tmp` which may be bind-mounted from the host
 - If `NIX_APPTAINER_NO_SANDBOX_WARN` is set, suppress the warning
 
 ### 3. Custom image building (documentation only)
@@ -59,7 +62,7 @@ A set of quality-of-life improvements to the nix-apptainer container and an exam
 
 **Note**: Testing the new `.sif` inside the container (nested apptainer) requires nested user namespace support on the host kernel. This works automatically with Apptainer 1.1+ and sufficient `max_user_namespaces` — no special configuration needed.
 
-**Deliverable**: Section in examples README or standalone doc.
+**Deliverable**: `docs/custom-image-building.md` — standalone doc with step-by-step instructions.
 
 ### 4. TERMINFO_DIRS enrichment
 
@@ -81,12 +84,12 @@ Apptainer bind-mounts system directories by default, so host paths are often vis
 **Solution**: Check overlay usage on container entry and warn at 90% capacity.
 
 **Implementation in `scripts/entrypoint.sh`**:
-- Check usage via `df` on `/nix/store` (lives on the overlay)
-- If >= 90%, print: `Warning: Overlay is 94% full (47.0/50.0 GB). Consider running 'nix-collect-garbage' or expanding the overlay (see docs).`
-- Cache in tmpfile — once per session
+- Check usage via `df` on `/nix/store` (which lives on the ext3 overlay once mounted). Note: the CLI's `status` command uses `statvfs` (Rust), but entrypoint.sh is a shell script so `df` is appropriate here.
+- If >= 90%, print: `Warning: Overlay is 94% full (47.0/50.0 GB). Consider running 'nix-collect-garbage' or expanding the overlay (truncate + e2fsck + resize2fs; see docs/custom-image-building.md).`
+- No caching needed — the `df` check is fast and the warning is important enough to show on every entry if the condition persists
 - No suppression env var — if you're about to run out of disk, you should know
 
-**Overlay expansion**: Overlays can be expanded without recreation via `truncate` + `e2fsck` + `resize2fs`. The warning message and docs will reference this. A CLI subcommand for this (`overlay resize`) is deferred to a future round.
+**Overlay expansion**: Overlays can be expanded without recreation via `truncate` + `e2fsck` + `resize2fs`. The warning message and `docs/custom-image-building.md` will document this procedure. A CLI subcommand for this (`overlay resize`) is deferred to a future round.
 
 ### 6. `--quiet` flag for enter/exec
 
@@ -95,16 +98,17 @@ Apptainer bind-mounts system directories by default, so host paths are often vis
 **Solution**: Plumb Apptainer's native `--quiet` flag through the CLI.
 
 **Changes**:
-- Add `--quiet` / `-q` flag to `enter` and `exec` CLI subcommands
-- When set, pass `--quiet` to apptainer in `container.rs`'s `build_apptainer_args()`
-- Add `quiet = true` option to the `[enter]` section of `config.toml` for persistent use
+- Add `--quiet` / `-q` flag to `enter` and `exec` CLI subcommands (clap args in `main.rs`, plumbed via flags structs)
+- When set, pass `--quiet` to apptainer in `container.rs`'s `build_apptainer_args()` — note: `--quiet` is a global apptainer flag and must be inserted **before** the subcommand (`run`/`exec`) in the args vec
+- Add `quiet` field (default `false`) to the `[enter]` section of `config.toml`, with `#[serde(default)]`
+- Config value is overridden by the CLI flag
 
 ### 7. Examples folder with nix-direnv
 
 **What**: A bioinformatics example flake demonstrating multiple devShells with direnv auto-loading.
 
 **Base image change** (`nixos/configuration.nix`):
-- Add `programs.direnv.enable = true` — installs direnv, nix-direnv, and configures shell hooks
+- Add `programs.direnv.enable = true` — installs direnv, nix-direnv, and configures shell hooks automatically
 
 **Example structure**:
 ```
@@ -132,13 +136,16 @@ examples/
 
 | File | Change |
 |------|--------|
-| `nixos/configuration.nix` | Add nix-output-monitor to systemPackages; `sandbox = true`, `sandbox-fallback = true`; `programs.direnv.enable = true` |
-| `lib/build-sandbox.nix` | Install nom wrapper to `/usr/local/bin/nix`; update `TERMINFO_DIRS` in `90-environment.sh` |
-| `scripts/entrypoint.sh` | Sandbox probe + warning; overlay usage warning; tmpfile caching |
-| `cli/src/commands/enter.rs` | Add `--quiet` flag |
-| `cli/src/commands/exec.rs` | Add `--quiet` flag |
-| `cli/src/container.rs` | Plumb `--quiet` to apptainer args |
-| `cli/src/config.rs` | Add `quiet` field to enter config |
+| `nixos/configuration.nix` | Add `pkgs.nix`, `nix-output-monitor` to systemPackages; `sandbox = true`, `sandbox-fallback = true`; `programs.direnv.enable = true` |
+| `lib/build-sandbox.nix` | Replace `/usr/local/bin/nix` symlink with nom wrapper script; update `TERMINFO_DIRS` in `90-environment.sh` |
+| `scripts/entrypoint.sh` | Sandbox probe + warning; overlay usage warning |
+| `cli/src/main.rs` | Add `--quiet` / `-q` clap arg to `Enter` and `Exec` variants |
+| `cli/src/commands/enter.rs` | Plumb `quiet` flag from args |
+| `cli/src/commands/exec.rs` | Plumb `quiet` flag from args |
+| `cli/src/container.rs` | Insert `--quiet` before subcommand in `build_apptainer_args()` |
+| `cli/src/config.rs` | Add `quiet: bool` field (default false) to enter config |
+| `tests/sandbox-structure.nix` | Verify nom wrapper at `/usr/local/bin/nix` is a script (not symlink); verify `TERMINFO_DIRS` |
+| `tests/shellcheck.nix` | Ensure nom wrapper script is included in shellcheck scope |
 
 ## Files added
 
@@ -146,7 +153,8 @@ examples/
 |------|---------|
 | `examples/bioinformatics/flake.nix` | Multi-shell bioinformatics devenv |
 | `examples/bioinformatics/.envrc` | `use flake` for direnv auto-loading |
-| `examples/bioinformatics/README.md` | Usage guide |
+| `examples/bioinformatics/README.md` | Usage guide with direnv workflow |
+| `docs/custom-image-building.md` | Custom image building workflow + overlay expansion docs |
 
 ## Out of scope
 
