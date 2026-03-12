@@ -83,10 +83,9 @@ Apptainer bind-mounts system directories by default, so host paths are often vis
 
 **Solution**: Check overlay usage on container entry and warn at 90% capacity.
 
-**Implementation in `scripts/entrypoint.sh`**:
-- Check usage via `df` on `/nix/store` (which lives on the ext3 overlay once mounted). Note: the CLI's `status` command uses `statvfs` (Rust), but entrypoint.sh is a shell script so `df` is appropriate here.
-- If >= 90%, print: `Warning: Overlay is 94% full (47.0/50.0 GB). Consider running 'nix-collect-garbage' or expanding the overlay (truncate + e2fsck + resize2fs; see docs/custom-image-building.md).`
-- No caching needed — the `df` check is fast and the warning is important enough to show on every entry if the condition persists
+**Implementation in CLI (`enter.rs` / `exec.rs`)**:
+- Before exec'ing apptainer, check overlay usage via `statvfs` on the overlay image (reusing existing infrastructure from `status` command)
+- If >= 80%, print: `Warning: Overlay is 84% full (42.0/50.0 GB). Consider running 'nix-collect-garbage' or expanding the overlay (truncate + e2fsck + resize2fs; see docs/custom-image-building.md).` (used/total derived dynamically from statvfs)
 - No suppression env var — if you're about to run out of disk, you should know
 
 **Overlay expansion**: Overlays can be expanded without recreation via `truncate` + `e2fsck` + `resize2fs`. The warning message and `docs/custom-image-building.md` will document this procedure. A CLI subcommand for this (`overlay resize`) is deferred to a future round.
@@ -138,10 +137,10 @@ examples/
 |------|--------|
 | `nixos/configuration.nix` | Add `pkgs.nix`, `nix-output-monitor` to systemPackages; `sandbox = true`, `sandbox-fallback = true`; `programs.direnv.enable = true` |
 | `lib/build-sandbox.nix` | Replace `/usr/local/bin/nix` symlink with nom wrapper script; update `TERMINFO_DIRS` in `90-environment.sh` |
-| `scripts/entrypoint.sh` | Sandbox probe + warning; overlay usage warning |
+| `scripts/entrypoint.sh` | Sandbox probe + warning |
 | `cli/src/main.rs` | Add `--quiet` / `-q` clap arg to `Enter` and `Exec` variants |
-| `cli/src/commands/enter.rs` | Plumb `quiet` flag from args |
-| `cli/src/commands/exec.rs` | Plumb `quiet` flag from args |
+| `cli/src/commands/enter.rs` | Plumb `quiet` flag from args; overlay usage warning via `statvfs` |
+| `cli/src/commands/exec.rs` | Plumb `quiet` flag from args; overlay usage warning via `statvfs` |
 | `cli/src/container.rs` | Insert `--quiet` before subcommand in `build_apptainer_args()` |
 | `cli/src/config.rs` | Add `quiet: bool` field (default false) to enter config |
 | `tests/sandbox-structure.nix` | Verify nom wrapper at `/usr/local/bin/nix` is a script (not symlink); verify `TERMINFO_DIRS` |
