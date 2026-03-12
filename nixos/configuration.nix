@@ -19,8 +19,8 @@
   environment.variables.NIX_REMOTE = lib.mkForce "";
 
   nix.settings = {
-    sandbox = false;
-    sandbox-fallback = false;
+    sandbox = true;
+    sandbox-fallback = lib.mkForce true;
     filter-syscalls = true;
     experimental-features = [
       "nix-command"
@@ -43,6 +43,7 @@
     wget
     nano
     ncurses
+    nix-output-monitor
   ];
 
   # Interactive shell configuration
@@ -69,6 +70,8 @@
       shopt -s globstar 2>/dev/null
     '';
   };
+
+  programs.direnv.enable = true;
 
   # Minimal user setup
   users.users.nixuser = {
