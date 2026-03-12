@@ -76,6 +76,9 @@ pub struct EnterConfig {
     /// Bind mounts in "src:dst" format
     #[serde(default)]
     pub bind: Vec<String>,
+    /// Suppress apptainer stderr warnings
+    #[serde(default)]
+    pub quiet: bool,
 }
 
 impl Config {
@@ -124,6 +127,23 @@ mod tests {
     fn test_load_missing_file() {
         let config = Config::load(Path::new("/nonexistent/config.toml")).unwrap();
         assert_eq!(config.sif.source, "github");
+    }
+
+    #[test]
+    fn test_quiet_default_false() {
+        let config = Config::default();
+        assert!(!config.enter.quiet);
+    }
+
+    #[test]
+    fn test_quiet_from_toml() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(f, r#"
+[enter]
+quiet = true
+"#).unwrap();
+        let config = Config::load(f.path()).unwrap();
+        assert!(config.enter.quiet);
     }
 
     #[test]
