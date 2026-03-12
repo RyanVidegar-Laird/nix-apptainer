@@ -81,10 +81,10 @@ Apptainer bind-mounts system directories by default, so host paths are often vis
 
 **Problem**: A full overlay causes cryptic write errors. Users on HPC clusters may not check `nix-apptainer status` regularly.
 
-**Solution**: Check overlay usage on container entry and warn at 90% capacity.
+**Solution**: Check overlay usage before container launch and warn at 80% capacity.
 
 **Implementation in CLI (`enter.rs` / `exec.rs`)**:
-- Before exec'ing apptainer, check overlay usage via `statvfs` on the overlay image (reusing existing infrastructure from `status` command)
+- Before exec'ing apptainer, check overlay usage by comparing actual disk usage (`MetadataExt::blocks() * 512`) against the allocated file size (`MetadataExt::len()`), matching the approach used by the `status` command. Note: `statvfs` on the overlay file returns the *host* filesystem stats, not the ext3 internals — we use file metadata instead.
 - If >= 80%, print: `Warning: Overlay is 84% full (42.0/50.0 GB). Consider running 'nix-collect-garbage' or expanding the overlay (truncate + e2fsck + resize2fs; see docs/custom-image-building.md).` (used/total derived dynamically from statvfs)
 - No suppression env var — if you're about to run out of disk, you should know
 
@@ -139,8 +139,8 @@ examples/
 | `lib/build-sandbox.nix` | Replace `/usr/local/bin/nix` symlink with nom wrapper script; update `TERMINFO_DIRS` in `90-environment.sh` |
 | `scripts/entrypoint.sh` | Sandbox probe + warning |
 | `cli/src/main.rs` | Add `--quiet` / `-q` clap arg to `Enter` and `Exec` variants |
-| `cli/src/commands/enter.rs` | Plumb `quiet` flag from args; overlay usage warning via `statvfs` |
-| `cli/src/commands/exec.rs` | Plumb `quiet` flag from args; overlay usage warning via `statvfs` |
+| `cli/src/commands/enter.rs` | Plumb `quiet` flag from args; overlay usage warning via file metadata |
+| `cli/src/commands/exec.rs` | Plumb `quiet` flag from args; overlay usage warning via file metadata |
 | `cli/src/container.rs` | Insert `--quiet` before subcommand in `build_apptainer_args()` |
 | `cli/src/config.rs` | Add `quiet: bool` field (default false) to enter config |
 | `tests/sandbox-structure.nix` | Verify nom wrapper at `/usr/local/bin/nix` is a script (not symlink); verify `TERMINFO_DIRS` |
