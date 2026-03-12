@@ -13,8 +13,12 @@ let
       msg = "boot.isContainer must be true";
     }
     {
-      check = cfg.nix.settings.sandbox == false;
-      msg = "nix.settings.sandbox must be false";
+      check = cfg.nix.settings.sandbox == true;
+      msg = "nix.settings.sandbox must be true";
+    }
+    {
+      check = cfg.nix.settings.sandbox-fallback == true;
+      msg = "nix.settings.sandbox-fallback must be true";
     }
     {
       check = builtins.elem "nix-command" cfg.nix.settings.experimental-features;
