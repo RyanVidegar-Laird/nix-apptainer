@@ -58,8 +58,3 @@ rEnv = pkgs.rWrapper.override {
 ```
 
 Then `nix develop .#r` or `direnv reload` to pick up the changes.
-
-## Future examples
-
-- RStudio Server with the R environment
-- Jupyter notebooks with R and Python kernels
