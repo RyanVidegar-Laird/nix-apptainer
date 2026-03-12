@@ -13,6 +13,7 @@ pub struct ExecFlags {
     pub bind: Vec<String>,
     pub passthrough: Vec<String>,
     pub command: Vec<String>,
+    pub quiet: bool,
 }
 
 pub fn run(flags: ExecFlags) -> anyhow::Result<()> {
@@ -47,6 +48,7 @@ pub fn run(flags: ExecFlags) -> anyhow::Result<()> {
         rocm: flags.rocm,
         bind: &flags.bind,
         passthrough: &flags.passthrough,
+        quiet: flags.quiet || config.enter.quiet,
     };
     let mut args = build_apptainer_args(&opts, ContainerMode::Exec);
     args.extend(flags.command.iter().cloned());

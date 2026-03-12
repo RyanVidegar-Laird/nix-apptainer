@@ -17,6 +17,7 @@ pub struct ContainerOpts<'a> {
     pub rocm: bool,
     pub bind: &'a [String],
     pub passthrough: &'a [String],
+    pub quiet: bool,
 }
 
 /// Build the argument list for an apptainer run/exec invocation.
@@ -24,6 +25,11 @@ pub struct ContainerOpts<'a> {
 /// Returns a `Vec<String>` of arguments to pass after the apptainer binary name.
 pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<String> {
     let mut args: Vec<String> = Vec::new();
+
+    // Global flags (must come before subcommand)
+    if opts.quiet {
+        args.push("--quiet".to_string());
+    }
 
     // Mode
     match mode {
@@ -93,6 +99,7 @@ mod tests {
             rocm: false,
             bind: &[],
             passthrough: &[],
+            quiet: false,
         };
         let args = build_apptainer_args(&opts, ContainerMode::Run);
         assert_eq!(args[0], "run");
@@ -111,6 +118,7 @@ mod tests {
             rocm: false,
             bind: &[],
             passthrough: &[],
+            quiet: false,
         };
         let args = build_apptainer_args(&opts, ContainerMode::Exec);
         assert_eq!(args[0], "exec");
@@ -127,6 +135,7 @@ mod tests {
             rocm: false,
             bind: &[],
             passthrough: &[],
+            quiet: false,
         };
         let args = build_apptainer_args(&opts, ContainerMode::Run);
         assert!(args.contains(&"--nv".to_string()));
@@ -145,6 +154,7 @@ mod tests {
             rocm: false,
             bind: &[],
             passthrough: &[],
+            quiet: false,
         };
         let args = build_apptainer_args(&opts, ContainerMode::Run);
         assert!(args.contains(&"--rocm".to_string()));
@@ -163,6 +173,7 @@ mod tests {
             rocm: false,
             bind: &flag_binds,
             passthrough: &[],
+            quiet: false,
         };
         let args = build_apptainer_args(&opts, ContainerMode::Run);
         let bind_count = args.iter().filter(|a| *a == "--bind").count();
@@ -183,8 +194,46 @@ mod tests {
             rocm: false,
             bind: &[],
             passthrough: &passthrough,
+            quiet: false,
         };
         let args = build_apptainer_args(&opts, ContainerMode::Run);
         assert!(args.contains(&"--writable-tmpfs".to_string()));
+    }
+
+    #[test]
+    fn test_quiet_flag() {
+        let paths = test_paths();
+        let config = test_config();
+        let opts = ContainerOpts {
+            paths: &paths,
+            config: &config,
+            nv: false,
+            rocm: false,
+            bind: &[],
+            passthrough: &[],
+            quiet: true,
+        };
+        let args = build_apptainer_args(&opts, ContainerMode::Run);
+        // --quiet must come before the subcommand
+        assert_eq!(args[0], "--quiet");
+        assert_eq!(args[1], "run");
+    }
+
+    #[test]
+    fn test_no_quiet_by_default() {
+        let paths = test_paths();
+        let config = test_config();
+        let opts = ContainerOpts {
+            paths: &paths,
+            config: &config,
+            nv: false,
+            rocm: false,
+            bind: &[],
+            passthrough: &[],
+            quiet: false,
+        };
+        let args = build_apptainer_args(&opts, ContainerMode::Run);
+        assert_eq!(args[0], "run");
+        assert!(!args.contains(&"--quiet".to_string()));
     }
 }

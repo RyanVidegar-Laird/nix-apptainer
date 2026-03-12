@@ -54,6 +54,9 @@ enum Commands {
         /// Bind-mount a host path (SRC:DST)
         #[arg(long, short = 'B')]
         bind: Vec<String>,
+        /// Suppress apptainer warnings
+        #[arg(short, long)]
+        quiet: bool,
         /// Extra arguments passed through to apptainer
         #[arg(last = true)]
         passthrough: Vec<String>,
@@ -69,6 +72,9 @@ enum Commands {
         /// Bind-mount a host path (SRC:DST)
         #[arg(long, short = 'B')]
         bind: Vec<String>,
+        /// Suppress apptainer warnings
+        #[arg(short, long)]
+        quiet: bool,
         /// Extra arguments passed through to apptainer
         #[arg(long, allow_hyphen_values = true, num_args = 0..)]
         passthrough: Vec<String>,
@@ -121,17 +127,20 @@ fn main() -> anyhow::Result<()> {
             nv,
             rocm,
             bind,
+            quiet,
             passthrough,
         } => commands::enter::run(commands::enter::EnterFlags {
             nv,
             rocm,
             bind,
             passthrough,
+            quiet,
         }),
         Commands::Exec {
             nv,
             rocm,
             bind,
+            quiet,
             passthrough,
             command,
         } => commands::exec::run(commands::exec::ExecFlags {
@@ -140,6 +149,7 @@ fn main() -> anyhow::Result<()> {
             bind,
             passthrough,
             command,
+            quiet,
         }),
         Commands::Update { check, yes } => {
             commands::update::run(commands::update::UpdateFlags { check, yes })

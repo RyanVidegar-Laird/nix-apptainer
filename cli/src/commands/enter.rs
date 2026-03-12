@@ -12,6 +12,7 @@ pub struct EnterFlags {
     pub rocm: bool,
     pub bind: Vec<String>,
     pub passthrough: Vec<String>,
+    pub quiet: bool,
 }
 
 pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
@@ -42,6 +43,7 @@ pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
         rocm: flags.rocm,
         bind: &flags.bind,
         passthrough: &flags.passthrough,
+        quiet: flags.quiet || config.enter.quiet,
     };
     let args = build_apptainer_args(&opts, ContainerMode::Run);
 
