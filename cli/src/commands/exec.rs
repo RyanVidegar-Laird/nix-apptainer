@@ -34,6 +34,19 @@ pub fn run(flags: ExecFlags) -> anyhow::Result<()> {
         );
     }
 
+    // Warn if overlay is getting full (compare actual disk usage vs allocated size)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(meta) = std::fs::metadata(&paths.overlay_path) {
+            let on_disk = meta.blocks() * 512;
+            let allocated = meta.len();
+            if let Some(warning) = crate::util::overlay_usage_warning(on_disk, allocated, 80) {
+                eprintln!("{warning}");
+            }
+        }
+    }
+
     if flags.command.is_empty() {
         bail!("No command specified. Usage: nix-apptainer exec -- <command>");
     }
