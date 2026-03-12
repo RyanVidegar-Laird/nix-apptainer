@@ -18,6 +18,14 @@ fi
 # mode bits because it doesn't check ownership (see README "Known issues").
 chmod -R 777 /nix/var/nix 2>/dev/null || true
 
+# Warn if Nix build sandbox is unavailable (user namespaces not supported)
+if [ -z "${NIX_APPTAINER_NO_SANDBOX_WARN:-}" ] && [ ! -f /run/.nix-apptainer-sandbox-checked ]; then
+    if ! unshare -U true 2>/dev/null; then
+        echo "Warning: Nix build sandbox unavailable (user namespaces not supported on this host). Builds will run unsandboxed." >&2
+    fi
+    touch /run/.nix-apptainer-sandbox-checked 2>/dev/null || true
+fi
+
 # --- Execute command or interactive shell ---
 if [ $# -gt 0 ]; then
     exec "$@"
