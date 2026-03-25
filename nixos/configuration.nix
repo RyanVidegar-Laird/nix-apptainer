@@ -4,6 +4,7 @@
   lib,
   pkgs,
   modulesPath,
+  nixpkgs-input,
   ...
 }:
 
@@ -17,6 +18,15 @@
   # Single-user nix — no daemon
   # container-config.nix sets NIX_REMOTE = "daemon", override it
   environment.variables.NIX_REMOTE = lib.mkForce "";
+
+  # Expose the build-time nixpkgs source tree in the flake registry so
+  # users can reference it as "flake:nixpkgs" (e.g. in home-manager configs)
+  # without downloading nixpkgs again (~180 MB). The source tree is baked
+  # into the squashfs image via the store path reference.
+  nix.registry.nixpkgs.to = {
+    type = "path";
+    path = nixpkgs-input.outPath;
+  };
 
   nix.settings = {
     sandbox = true;
@@ -44,6 +54,7 @@
     nano
     ncurses
     nix-output-monitor
+    home-manager
   ];
 
   # Interactive shell configuration

@@ -102,30 +102,9 @@ runCommand "nix-apptainer-sandbox"
     mkdir -p $sandbox/usr/local
     ln -s ${systemPath} $sandbox/run/sw
 
-    # Nix binary itself (for single-user use inside the container)
+    # Nix binaries for single-user use inside the container
     mkdir -p $sandbox/usr/local/bin
-    # Nom wrapper — routes nom-compatible subcommands through nix-output-monitor
-    # on interactive terminals. Bypass: NIX_APPTAINER_NO_NOM=1 or /run/sw/bin/nix
-    cat > $sandbox/usr/local/bin/nix <<'WRAPPER'
-    #!/bin/sh
-    real_nix="/run/sw/bin/nix"
-
-    # Bypass conditions: env var, non-interactive, nom not found
-    if [ -n "''${NIX_APPTAINER_NO_NOM:-}" ] || ! [ -t 1 ] || ! command -v nom >/dev/null 2>&1; then
-        exec "$real_nix" "$@"
-    fi
-
-    # Only route nom-compatible subcommands through nom
-    case "''${1:-}" in
-        build|develop|shell|flake|run)
-            exec nom "$@"
-            ;;
-        *)
-            exec "$real_nix" "$@"
-            ;;
-    esac
-    WRAPPER
-    chmod +x $sandbox/usr/local/bin/nix
+    ln -s ${nix}/bin/nix $sandbox/usr/local/bin/nix
     ln -s ${nix}/bin/nix-store $sandbox/usr/local/bin/nix-store
     ln -s ${nix}/bin/nix-env $sandbox/usr/local/bin/nix-env
     ln -s ${nix}/bin/nix-build $sandbox/usr/local/bin/nix-build

@@ -73,13 +73,19 @@ selects only the modules you want:
 
 ### Example: standalone home-manager flake
 
-If you don't have an existing nixos-configs repo, create a standalone flake:
+If you don't have an existing nixos-configs repo, create a standalone flake.
+
+The container registers its build-time nixpkgs in the flake registry, so
+you can use `flake:nixpkgs` to reuse it — avoiding a ~300 MB download of a
+second nixpkgs:
 
 ```nix
 # flake.nix
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
+    # Reuse the nixpkgs already baked into the container image.
+    # Resolves via the flake registry entry set by nix-apptainer.
+    nixpkgs.url = "flake:nixpkgs";
     home-manager = {
       url = "github:nix-community/home-manager/release-25.11";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -113,6 +119,11 @@ If you don't have an existing nixos-configs repo, create a standalone flake:
 ```
 
 Push this to GitHub and reference it in the activation command below.
+
+> **Note:** `flake:nixpkgs` resolves to whatever nixpkgs the container was
+> built with (currently nixos-25.11). Make sure your home-manager release
+> matches (e.g. `release-25.11`). If you pin your own nixpkgs instead,
+> home-manager will download that full closure separately.
 
 ## Activation
 
