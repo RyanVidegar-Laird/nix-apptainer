@@ -50,12 +50,11 @@ runCommand "nix-apptainer-test-sandbox"
       pass "symlink $link -> $target"
     done
 
-    # --- Nom wrapper must be a script, not a symlink ---
-    [ -f "$sb/usr/local/bin/nix" ] || fail "usr/local/bin/nix missing"
-    [ -x "$sb/usr/local/bin/nix" ] || fail "usr/local/bin/nix not executable"
-    [ ! -L "$sb/usr/local/bin/nix" ] || fail "usr/local/bin/nix should be a script, not a symlink"
-    head -1 "$sb/usr/local/bin/nix" | grep -q "^#!/bin/sh" || fail "usr/local/bin/nix missing shebang"
-    pass "usr/local/bin/nix is a nom wrapper script"
+    # --- /usr/local/bin/nix must be a symlink into /nix/store ---
+    [ -L "$sb/usr/local/bin/nix" ] || fail "usr/local/bin/nix is not a symlink"
+    target=$(readlink "$sb/usr/local/bin/nix")
+    echo "$target" | grep -q "^/nix/store/" || fail "usr/local/bin/nix -> $target does not point into /nix/store"
+    pass "symlink usr/local/bin/nix -> $target"
 
     # Verify key symlinks resolve to real files within the sandbox
     for link in bin/sh usr/bin/env; do
