@@ -36,6 +36,9 @@ enum Commands {
         /// Overlay size in MB (default: 51200)
         #[arg(long)]
         overlay_size: Option<u64>,
+        /// Overlay type: "dir" for directory (default), "ext3" for ext3 image
+        #[arg(long)]
+        overlay_type: Option<String>,
         /// Directory to store all data (overrides XDG paths)
         #[arg(long)]
         data_dir: Option<PathBuf>,
@@ -115,11 +118,13 @@ fn main() -> anyhow::Result<()> {
         Commands::Init {
             sif,
             overlay_size,
+            overlay_type,
             data_dir,
             yes,
         } => commands::init::run(commands::init::InitFlags {
             sif,
             overlay_size,
+            overlay_type,
             data_dir,
             yes,
         }),

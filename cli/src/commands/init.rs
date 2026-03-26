@@ -3,7 +3,7 @@ use dialoguer::{Confirm, Input, Select};
 use std::path::PathBuf;
 
 use crate::checks;
-use crate::config::Config;
+use crate::config::{Config, OverlayType};
 use crate::digest::Sha256Digest;
 use crate::overlay;
 use crate::paths::AppPaths;
@@ -15,6 +15,7 @@ use crate::system::RealSystem;
 pub struct InitFlags {
     pub sif: Option<String>,
     pub overlay_size: Option<u64>,
+    pub overlay_type: Option<String>,
     pub data_dir: Option<PathBuf>,
     pub yes: bool,
 }
@@ -65,7 +66,8 @@ fn fetch_sif(source: &SifSource, paths: &AppPaths) -> anyhow::Result<(String, Sh
 fn save_init_state(
     paths: &AppPaths,
     sif_source: &SifSource,
-    overlay_size: u64,
+    overlay_type: &OverlayType,
+    ext3_size_mb: u64,
     version: &str,
     hash: Sha256Digest,
 ) -> anyhow::Result<()> {
@@ -80,8 +82,8 @@ fn save_init_state(
             repo: config_source.1,
         },
         overlay: crate::config::OverlayConfig {
-            overlay_type: crate::config::OverlayType::default(),
-            ext3_size_mb: overlay_size,
+            overlay_type: overlay_type.clone(),
+            ext3_size_mb,
         },
         enter: crate::config::EnterConfig::default(),
     };
@@ -207,45 +209,109 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     // --- Fetch SIF ---
     let (version, hash) = fetch_sif(&sif_source, &paths)?;
 
-    // --- Overlay ---
-    let overlay_size = if let Some(size) = flags.overlay_size {
-        size
+    // --- Overlay type ---
+    let overlay_type = if let Some(ref t) = flags.overlay_type {
+        match t.as_str() {
+            "dir" | "directory" => OverlayType::Directory,
+            "ext3" => OverlayType::Ext3,
+            _ => anyhow::bail!("Invalid overlay type '{}'. Use 'dir' or 'ext3'.", t),
+        }
     } else if flags.yes {
-        51200
+        OverlayType::Directory
     } else {
-        let default_str = "51200";
-        let size_str: String = Input::new()
-            .with_prompt("Overlay size in MB (sparse \u{2014} actual disk usage starts small)")
-            .default(default_str.to_string())
-            .interact_text()?;
-        size_str
-            .parse::<u64>()
-            .context("Invalid overlay size")?
+        let choices = vec![
+            "Directory overlay (recommended \u{2014} best performance)",
+            "ext3 image (sparse, fixed capacity)",
+        ];
+        let selection = Select::new()
+            .with_prompt("Overlay type")
+            .items(&choices)
+            .default(0)
+            .interact()?;
+        match selection {
+            0 => OverlayType::Directory,
+            1 => OverlayType::Ext3,
+            _ => unreachable!(),
+        }
     };
 
-    if paths.overlay_path.exists() {
-        let should_recreate = if flags.yes {
-            true
-        } else {
-            Confirm::new()
-                .with_prompt("Overlay already exists. Overwrite? (destroys all installed packages)")
-                .default(false)
-                .interact()?
-        };
-        if should_recreate {
-            std::fs::remove_file(&paths.overlay_path)?;
-            println!("Creating overlay ({overlay_size} MB, sparse)...");
-            overlay::create_overlay(&sys, &paths.overlay_path, overlay_size)?;
-        } else {
-            println!("Keeping existing overlay.");
+    // --- Overlay ---
+    let ext3_size_mb = match overlay_type {
+        OverlayType::Ext3 => {
+            if let Some(size) = flags.overlay_size {
+                size
+            } else if flags.yes {
+                51200
+            } else {
+                let size_str: String = Input::new()
+                    .with_prompt("ext3 overlay size in MB (sparse)")
+                    .default("51200".to_string())
+                    .interact_text()?;
+                size_str.parse::<u64>().context("Invalid overlay size")?
+            }
         }
-    } else {
-        println!("Creating overlay ({overlay_size} MB, sparse)...");
-        overlay::create_overlay(&sys, &paths.overlay_path, overlay_size)?;
+        OverlayType::Directory => flags.overlay_size.unwrap_or(51200),
+    };
+
+    match overlay_type {
+        OverlayType::Directory => {
+            if paths.overlay_dir.exists() {
+                let should_recreate = if flags.yes {
+                    true
+                } else {
+                    Confirm::new()
+                        .with_prompt("Directory overlay already exists. Overwrite? (destroys all installed packages)")
+                        .default(false)
+                        .interact()?
+                };
+                if should_recreate {
+                    std::fs::remove_dir_all(&paths.overlay_dir)?;
+                    println!("Creating directory overlay...");
+                    overlay::create_directory_overlay(&paths.overlay_dir)?;
+                } else {
+                    println!("Keeping existing overlay.");
+                }
+            } else {
+                println!("Creating directory overlay...");
+                overlay::create_directory_overlay(&paths.overlay_dir)?;
+            }
+        }
+        OverlayType::Ext3 => {
+            if paths.overlay_path.exists() {
+                let should_recreate = if flags.yes {
+                    true
+                } else {
+                    Confirm::new()
+                        .with_prompt("Overlay already exists. Overwrite? (destroys all installed packages)")
+                        .default(false)
+                        .interact()?
+                };
+                if should_recreate {
+                    std::fs::remove_file(&paths.overlay_path)?;
+                    println!("Creating ext3 overlay ({ext3_size_mb} MB, sparse)...");
+                    overlay::create_overlay(&sys, &paths.overlay_path, ext3_size_mb)?;
+                } else {
+                    println!("Keeping existing overlay.");
+                }
+            } else {
+                println!("Creating ext3 overlay ({ext3_size_mb} MB, sparse)...");
+                overlay::create_overlay(&sys, &paths.overlay_path, ext3_size_mb)?;
+            }
+        }
     }
 
+    // --- Pre-seed Nix DB ---
+    let apptainer = checks::apptainer_binary(&sys)
+        .context("apptainer/singularity not found")?;
+    let overlay_str = match overlay_type {
+        OverlayType::Directory => paths.overlay_dir.to_string_lossy().to_string(),
+        OverlayType::Ext3 => paths.overlay_path.to_string_lossy().to_string(),
+    };
+    println!("Pre-seeding Nix store database...");
+    overlay::preseed_nix_db(&sys, &apptainer, &overlay_str, &paths.sif_path.to_string_lossy())?;
+
     // --- Save config and state ---
-    save_init_state(&paths, &sif_source, overlay_size, &version, hash)?;
+    save_init_state(&paths, &sif_source, &overlay_type, ext3_size_mb, &version, hash)?;
 
     println!();
     println!("Setup complete! Run `nix-apptainer enter` to start.");
