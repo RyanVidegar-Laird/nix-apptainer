@@ -6,6 +6,7 @@ pub struct AppPaths {
     pub data_dir: PathBuf,
     pub sif_path: PathBuf,
     pub overlay_path: PathBuf,
+    pub overlay_dir: PathBuf,
     pub state_file: PathBuf,
     pub cache_dir: PathBuf,
 }
@@ -32,6 +33,7 @@ impl AppPaths {
             data_dir: base.clone(),
             sif_path: base.join("base.sif"),
             overlay_path: base.join("overlay.img"),
+            overlay_dir: base.join("overlay"),
             state_file: base.join("state.json"),
             cache_dir: base.join("cache"),
         }
@@ -48,6 +50,7 @@ impl AppPaths {
             data_dir: data_dir.clone(),
             sif_path: data_dir.join("base.sif"),
             overlay_path: data_dir.join("overlay.img"),
+            overlay_dir: data_dir.join("overlay"),
             state_file: data_dir.join("state.json"),
             cache_dir,
         })
@@ -66,6 +69,18 @@ mod tests {
         assert_eq!(paths.overlay_path, PathBuf::from("/tmp/nix-apptainer-test/overlay.img"));
         assert_eq!(paths.state_file, PathBuf::from("/tmp/nix-apptainer-test/state.json"));
         assert_eq!(paths.cache_dir, PathBuf::from("/tmp/nix-apptainer-test/cache"));
+    }
+
+    #[test]
+    fn test_overlay_dir_from_base() {
+        let paths = AppPaths::from_base_dir(PathBuf::from("/tmp/nix-apptainer-test"));
+        assert_eq!(paths.overlay_dir, PathBuf::from("/tmp/nix-apptainer-test/overlay"));
+    }
+
+    #[test]
+    fn test_overlay_dir_resolve_with_data_dir() {
+        let paths = AppPaths::resolve_with_data_dir(PathBuf::from("/scratch/user/nix"));
+        assert_eq!(paths.overlay_dir, PathBuf::from("/scratch/user/nix/overlay"));
     }
 
     #[test]
