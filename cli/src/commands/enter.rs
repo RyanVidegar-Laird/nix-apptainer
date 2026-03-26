@@ -49,8 +49,10 @@ pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
     let apptainer = checks::apptainer_binary(&sys)
         .context("apptainer/singularity not found")?;
 
+    let overlay = paths.overlay_path.to_string_lossy().to_string();
     let opts = ContainerOpts {
-        paths: &paths,
+        sif_path: &paths.sif_path,
+        overlay: &overlay,
         config: &config,
         nv: flags.nv,
         rocm: flags.rocm,

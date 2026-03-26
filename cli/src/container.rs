@@ -1,5 +1,6 @@
+use std::path::Path;
+
 use crate::config::{Config, GpuMode};
-use crate::paths::AppPaths;
 
 /// Whether to launch an interactive shell or execute a command.
 pub enum ContainerMode {
@@ -11,7 +12,8 @@ pub enum ContainerMode {
 
 /// Options for building the apptainer command line.
 pub struct ContainerOpts<'a> {
-    pub paths: &'a AppPaths,
+    pub sif_path: &'a Path,
+    pub overlay: &'a str,
     pub config: &'a Config,
     pub nv: bool,
     pub rocm: bool,
@@ -39,7 +41,7 @@ pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<St
 
     // Overlay
     args.push("--overlay".to_string());
-    args.push(opts.paths.overlay_path.to_string_lossy().to_string());
+    args.push(opts.overlay.to_string());
 
     // GPU from config, overridden by flags
     let use_nv = opts.nv || opts.config.enter.gpu == GpuMode::Nvidia;
@@ -65,7 +67,7 @@ pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<St
     args.extend(opts.passthrough.iter().cloned());
 
     // SIF path
-    args.push(opts.paths.sif_path.to_string_lossy().to_string());
+    args.push(opts.sif_path.to_string_lossy().to_string());
 
     args
 }
@@ -74,10 +76,15 @@ pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<St
 mod tests {
     use super::*;
     use crate::config::{EnterConfig, OverlayConfig, SifConfig};
+    use crate::paths::AppPaths;
     use std::path::PathBuf;
 
     fn test_paths() -> AppPaths {
         AppPaths::resolve_with_data_dir(PathBuf::from("/tmp/test"))
+    }
+
+    fn test_overlay() -> String {
+        test_paths().overlay_path.to_string_lossy().to_string()
     }
 
     fn test_config() -> Config {
@@ -91,9 +98,11 @@ mod tests {
     #[test]
     fn test_run_mode_basic() {
         let paths = test_paths();
+        let overlay = test_overlay();
         let config = test_config();
         let opts = ContainerOpts {
-            paths: &paths,
+            sif_path: &paths.sif_path,
+            overlay: &overlay,
             config: &config,
             nv: false,
             rocm: false,
@@ -110,9 +119,11 @@ mod tests {
     #[test]
     fn test_exec_mode() {
         let paths = test_paths();
+        let overlay = test_overlay();
         let config = test_config();
         let opts = ContainerOpts {
-            paths: &paths,
+            sif_path: &paths.sif_path,
+            overlay: &overlay,
             config: &config,
             nv: false,
             rocm: false,
@@ -127,9 +138,11 @@ mod tests {
     #[test]
     fn test_gpu_from_flag() {
         let paths = test_paths();
+        let overlay = test_overlay();
         let config = test_config();
         let opts = ContainerOpts {
-            paths: &paths,
+            sif_path: &paths.sif_path,
+            overlay: &overlay,
             config: &config,
             nv: true,
             rocm: false,
@@ -145,10 +158,12 @@ mod tests {
     #[test]
     fn test_gpu_from_config() {
         let paths = test_paths();
+        let overlay = test_overlay();
         let mut config = test_config();
         config.enter.gpu = GpuMode::Rocm;
         let opts = ContainerOpts {
-            paths: &paths,
+            sif_path: &paths.sif_path,
+            overlay: &overlay,
             config: &config,
             nv: false,
             rocm: false,
@@ -163,11 +178,13 @@ mod tests {
     #[test]
     fn test_bind_mounts_combined() {
         let paths = test_paths();
+        let overlay = test_overlay();
         let mut config = test_config();
         config.enter.bind = vec!["/data:/data".to_string()];
         let flag_binds = vec!["/scratch:/scratch".to_string()];
         let opts = ContainerOpts {
-            paths: &paths,
+            sif_path: &paths.sif_path,
+            overlay: &overlay,
             config: &config,
             nv: false,
             rocm: false,
@@ -185,10 +202,12 @@ mod tests {
     #[test]
     fn test_passthrough_args() {
         let paths = test_paths();
+        let overlay = test_overlay();
         let config = test_config();
         let passthrough = vec!["--writable-tmpfs".to_string()];
         let opts = ContainerOpts {
-            paths: &paths,
+            sif_path: &paths.sif_path,
+            overlay: &overlay,
             config: &config,
             nv: false,
             rocm: false,
@@ -203,9 +222,11 @@ mod tests {
     #[test]
     fn test_quiet_flag() {
         let paths = test_paths();
+        let overlay = test_overlay();
         let config = test_config();
         let opts = ContainerOpts {
-            paths: &paths,
+            sif_path: &paths.sif_path,
+            overlay: &overlay,
             config: &config,
             nv: false,
             rocm: false,
@@ -222,9 +243,11 @@ mod tests {
     #[test]
     fn test_no_quiet_by_default() {
         let paths = test_paths();
+        let overlay = test_overlay();
         let config = test_config();
         let opts = ContainerOpts {
-            paths: &paths,
+            sif_path: &paths.sif_path,
+            overlay: &overlay,
             config: &config,
             nv: false,
             rocm: false,
