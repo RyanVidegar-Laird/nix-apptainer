@@ -1,10 +1,8 @@
 use crate::checks;
-use crate::config::Config;
+use crate::config::{Config, OverlayType};
 use crate::paths::AppPaths;
 use crate::state::State;
 use crate::system::RealSystem;
-#[cfg(unix)]
-use std::os::unix::fs::MetadataExt;
 
 pub fn run() -> anyhow::Result<()> {
     let sys = RealSystem;
@@ -27,19 +25,35 @@ pub fn run() -> anyhow::Result<()> {
     };
 
     // Overlay info
-    let overlay_info = if paths.overlay_path.exists() {
-        let meta = std::fs::metadata(&paths.overlay_path)?;
-        let on_disk = meta.blocks() * 512;
-        let allocated = meta.len();
-        let capacity = config.overlay.ext3_size_mb * 1024 * 1024;
-        format!(
-            "{} on disk / {} allocated / {} capacity",
-            crate::util::human_size(on_disk),
-            crate::util::human_size(allocated),
-            crate::util::human_size(capacity)
-        )
-    } else {
-        "not created".to_string()
+    let overlay_info = match config.overlay.overlay_type {
+        OverlayType::Directory => {
+            if paths.overlay_dir.exists() {
+                let size = dir_size(&paths.overlay_dir.join("upper"));
+                format!("directory ({} used)", crate::util::human_size(size))
+            } else {
+                "directory (not created)".to_string()
+            }
+        }
+        OverlayType::Ext3 => {
+            if paths.overlay_path.exists() {
+                let meta = std::fs::metadata(&paths.overlay_path)?;
+                #[cfg(unix)]
+                let on_disk = {
+                    use std::os::unix::fs::MetadataExt;
+                    meta.blocks() * 512
+                };
+                let allocated = meta.len();
+                let capacity = config.overlay.ext3_size_mb * 1024 * 1024;
+                format!(
+                    "ext3 ({} on disk / {} allocated / {} capacity)",
+                    crate::util::human_size(on_disk),
+                    crate::util::human_size(allocated),
+                    crate::util::human_size(capacity)
+                )
+            } else {
+                "ext3 (not created)".to_string()
+            }
+        }
     };
 
     // Apptainer
@@ -73,19 +87,32 @@ pub fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn dir_size(path: &std::path::Path) -> u64 {
+    if path.is_file() {
+        return std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    }
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            total += dir_size(&entry.path());
+        }
+    }
+    total
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
-    fn test_overlay_format() {
+    fn test_ext3_overlay_format() {
         let on_disk = 128 * 1024 * 1024u64;
         let allocated = 2 * 1024 * 1024 * 1024u64;
         let capacity = 50 * 1024 * 1024 * 1024u64;
         let result = format!(
-            "{} on disk / {} allocated / {} capacity",
+            "ext3 ({} on disk / {} allocated / {} capacity)",
             crate::util::human_size(on_disk),
             crate::util::human_size(allocated),
             crate::util::human_size(capacity)
         );
-        assert_eq!(result, "128.0 MB on disk / 2.0 GB allocated / 50.0 GB capacity");
+        assert_eq!(result, "ext3 (128.0 MB on disk / 2.0 GB allocated / 50.0 GB capacity)");
     }
 }
