@@ -16,7 +16,8 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
 
     if flags.all {
         remove_with_label("Download cache", &paths.cache_dir)?;
-        remove_with_label("Overlay", &paths.overlay_path)?;
+        remove_with_label("Overlay (directory)", &paths.overlay_dir)?;
+        remove_with_label("Overlay (ext3)", &paths.overlay_path)?;
         remove_with_label("Base SIF", &paths.sif_path)?;
         remove_with_label("State", &paths.state_file)?;
         remove_with_label("Config", &paths.config_file)?;
@@ -35,7 +36,14 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
     }
 
     if flags.overlay {
-        if paths.overlay_path.exists() {
+        let config = crate::config::Config::load(&paths.config_file)?;
+        let (label, exists) = match config.overlay.overlay_type {
+            crate::config::OverlayType::Directory => {
+                ("Directory overlay", paths.overlay_dir.exists())
+            }
+            crate::config::OverlayType::Ext3 => ("Overlay image", paths.overlay_path.exists()),
+        };
+        if exists {
             let proceed = Confirm::new()
                 .with_prompt(
                     "Remove overlay? This destroys all packages installed inside the container",
@@ -43,7 +51,14 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
                 .default(false)
                 .interact()?;
             if proceed {
-                remove_with_label("Overlay", &paths.overlay_path)?;
+                match config.overlay.overlay_type {
+                    crate::config::OverlayType::Directory => {
+                        remove_with_label(label, &paths.overlay_dir)?;
+                    }
+                    crate::config::OverlayType::Ext3 => {
+                        remove_with_label(label, &paths.overlay_path)?;
+                    }
+                }
             } else {
                 println!("Aborted.");
             }
@@ -61,6 +76,13 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
         items.push((
             format!("Download cache (~{})", crate::util::human_size(size)),
             &paths.cache_dir,
+        ));
+    }
+    if paths.overlay_dir.exists() {
+        let size = dir_size(&paths.overlay_dir);
+        items.push((
+            format!("Directory overlay (~{})", crate::util::human_size(size)),
+            &paths.overlay_dir,
         ));
     }
     if paths.overlay_path.exists() {
