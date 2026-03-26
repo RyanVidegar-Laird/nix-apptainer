@@ -39,21 +39,32 @@ impl Default for SifConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct OverlayConfig {
-    /// Overlay size in megabytes (sparse)
-    #[serde(default = "default_overlay_size")]
-    pub size_mb: u64,
+#[derive(Debug, Serialize, Deserialize, Default, PartialEq, Eq, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum OverlayType {
+    #[default]
+    Directory,
+    Ext3,
 }
 
-fn default_overlay_size() -> u64 {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OverlayConfig {
+    #[serde(default, rename = "type")]
+    pub overlay_type: OverlayType,
+    /// ext3 overlay size in megabytes (sparse). Only used when type = "ext3".
+    #[serde(default = "default_ext3_size", alias = "size_mb")]
+    pub ext3_size_mb: u64,
+}
+
+fn default_ext3_size() -> u64 {
     51200
 }
 
 impl Default for OverlayConfig {
     fn default() -> Self {
         Self {
-            size_mb: default_overlay_size(),
+            overlay_type: OverlayType::default(),
+            ext3_size_mb: default_ext3_size(),
         }
     }
 }
@@ -109,7 +120,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::GpuMode;
+    use super::{GpuMode, OverlayType};
     use std::io::Write;
     use tempfile::NamedTempFile;
 
@@ -118,7 +129,7 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.sif.source, "github");
         assert_eq!(config.sif.repo, "RyanVidegar-Laird/nix-apptainer");
-        assert_eq!(config.overlay.size_mb, 51200);
+        assert_eq!(config.overlay.ext3_size_mb, 51200);
         assert_eq!(config.enter.gpu, GpuMode::None);
         assert!(config.enter.bind.is_empty());
     }
@@ -147,6 +158,47 @@ quiet = true
     }
 
     #[test]
+    fn test_overlay_type_default_directory() {
+        let config = Config::default();
+        assert_eq!(config.overlay.overlay_type, OverlayType::Directory);
+    }
+
+    #[test]
+    fn test_overlay_type_ext3_from_toml() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(f, r#"
+[overlay]
+type = "ext3"
+ext3_size_mb = 20480
+"#).unwrap();
+        let config = Config::load(f.path()).unwrap();
+        assert_eq!(config.overlay.overlay_type, OverlayType::Ext3);
+        assert_eq!(config.overlay.ext3_size_mb, 20480);
+    }
+
+    #[test]
+    fn test_overlay_size_mb_alias() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(f, r#"
+[overlay]
+size_mb = 30000
+"#).unwrap();
+        let config = Config::load(f.path()).unwrap();
+        assert_eq!(config.overlay.ext3_size_mb, 30000);
+    }
+
+    #[test]
+    fn test_overlay_type_directory_from_toml() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(f, r#"
+[overlay]
+type = "directory"
+"#).unwrap();
+        let config = Config::load(f.path()).unwrap();
+        assert_eq!(config.overlay.overlay_type, OverlayType::Directory);
+    }
+
+    #[test]
     fn test_roundtrip() {
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, r#"
@@ -163,7 +215,7 @@ bind = ["/scratch:/scratch", "/data:/data"]
 "#).unwrap();
         let config = Config::load(f.path()).unwrap();
         assert_eq!(config.sif.source, "/data/shared/base.sif");
-        assert_eq!(config.overlay.size_mb, 20480);
+        assert_eq!(config.overlay.ext3_size_mb, 20480);
         assert_eq!(config.enter.gpu, GpuMode::Nvidia);
         assert_eq!(config.enter.bind.len(), 2);
     }

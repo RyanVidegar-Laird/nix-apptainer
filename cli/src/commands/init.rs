@@ -80,7 +80,8 @@ fn save_init_state(
             repo: config_source.1,
         },
         overlay: crate::config::OverlayConfig {
-            size_mb: overlay_size,
+            overlay_type: crate::config::OverlayType::default(),
+            ext3_size_mb: overlay_size,
         },
         enter: crate::config::EnterConfig::default(),
     };

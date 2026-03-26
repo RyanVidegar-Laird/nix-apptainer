@@ -31,7 +31,7 @@ pub fn run() -> anyhow::Result<()> {
         let meta = std::fs::metadata(&paths.overlay_path)?;
         let on_disk = meta.blocks() * 512;
         let allocated = meta.len();
-        let capacity = config.overlay.size_mb * 1024 * 1024;
+        let capacity = config.overlay.ext3_size_mb * 1024 * 1024;
         format!(
             "{} on disk / {} allocated / {} capacity",
             crate::util::human_size(on_disk),
