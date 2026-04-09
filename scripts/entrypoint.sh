@@ -10,6 +10,9 @@ set -euo pipefail
 # cause the container's /etc/profile to skip its own PATH setup.
 unset __NIXOS_SET_ENVIRONMENT_DONE __ETC_PROFILE_DONE __ETC_BASHRC_SOURCED
 
+# Ensure home directory exists (overlay may not have it on first use)
+mkdir -p "$HOME" 2>/dev/null || true
+
 # Ensure PATH includes nix and system tools (needed for the TERM check;
 # the login shell will get full PATH from /etc/profile)
 export PATH="/usr/local/bin:/run/sw/bin:/bin:/usr/bin:${PATH:-}"

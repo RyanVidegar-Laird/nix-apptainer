@@ -50,7 +50,8 @@ pub fn create_directory_overlay(path: &Path) -> anyhow::Result<()> {
 pub fn preseed_nix_db(sys: &dyn System, apptainer: &str, overlay: &str, sif: &str) -> anyhow::Result<()> {
     let status = sys.run_command(
         apptainer,
-        &["exec", "--overlay", overlay, sif, "sh", "-c", "nix-store --load-db < /nix-path-registration"],
+        &["exec", "--overlay", overlay, sif, "sh", "-c",
+          "chmod -R 777 /nix/var/nix 2>/dev/null; nix-store --load-db < /nix-path-registration"],
     ).with_context(|| "Failed to run apptainer exec for DB pre-seeding")?;
 
     if !status.success() {

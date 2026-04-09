@@ -43,12 +43,17 @@ pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<St
     args.push("--overlay".to_string());
     args.push(opts.overlay.to_string());
 
-    // Isolate home directory: don't mount host $HOME, use the overlay's
-    // /home/<user> instead. Prevents host home-manager/dotfile conflicts.
+    // Isolate home directory: don't mount host $HOME or CWD, use the
+    // overlay's /home/<user> instead. Prevents host dotfile conflicts.
+    // Note: --home PATH would re-bind the host path, so we set HOME via --env.
     if !opts.config.enter.mount_home {
         args.push("--no-home".to_string());
+        args.push("--no-mount".to_string());
+        args.push("cwd".to_string());
+        // HOME is set automatically by Apptainer from the container's /etc/passwd.
+        // --pwd sets the initial working directory to the container home.
         let user = std::env::var("USER").unwrap_or_else(|_| "nixuser".to_string());
-        args.push("--home".to_string());
+        args.push("--pwd".to_string());
         args.push(format!("/home/{user}"));
     }
 
@@ -297,7 +302,10 @@ mod tests {
         };
         let args = build_apptainer_args(&opts, ContainerMode::Run);
         assert!(args.contains(&"--no-home".to_string()));
-        assert!(args.contains(&"--home".to_string()));
+        assert!(args.contains(&"--no-mount".to_string()));
+        assert!(args.contains(&"cwd".to_string()));
+        assert!(args.contains(&"--pwd".to_string()));
+        assert!(!args.contains(&"--home".to_string()));
     }
 
     #[test]
