@@ -26,7 +26,7 @@ pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
             paths.sif_path.display()
         );
     }
-    let overlay = resolve_overlay(&config, &paths)?;
+    let overlay = super::resolve_overlay(&config, &paths)?;
 
     // Warn if ext3 overlay is getting full
     #[cfg(unix)]
@@ -62,27 +62,4 @@ pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
 fn exec_replace(program: &str, args: &[String]) -> std::io::Error {
     use std::os::unix::process::CommandExt;
     Command::new(program).args(args).exec()
-}
-
-fn resolve_overlay(config: &Config, paths: &AppPaths) -> anyhow::Result<String> {
-    match config.overlay.overlay_type {
-        OverlayType::Directory => {
-            if !paths.overlay_dir.exists() {
-                bail!(
-                    "Directory overlay not found at {}. Run `nix-apptainer init` first.",
-                    paths.overlay_dir.display()
-                );
-            }
-            Ok(paths.overlay_dir.to_string_lossy().to_string())
-        }
-        OverlayType::Ext3 => {
-            if !paths.overlay_path.exists() {
-                bail!(
-                    "Overlay image not found at {}. Run `nix-apptainer init` first.",
-                    paths.overlay_path.display()
-                );
-            }
-            Ok(paths.overlay_path.to_string_lossy().to_string())
-        }
-    }
 }

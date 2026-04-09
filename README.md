@@ -2,7 +2,7 @@
 
 [![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2FRyanVidegar-Laird%2Fnix-apptainer)](https://garnix.io/repo/RyanVidegar-Laird/nix-apptainer)
 
-Apptainer container image with a minimal NixOS system and single-user Nix for HPC environments. This acts as a shim / portable shell where a persistant, writable, `/nix/store` is availble where `nix*` commands (including flakes) are availble.
+Apptainer container image with a minimal NixOS system and single-user Nix for HPC environments. This acts as a shim / portable shell where a persistent, writable `/nix/store` is available and `nix` commands (including flakes) work out of the box.
 
 ## Quick start
 
@@ -54,18 +54,21 @@ nix-apptainer exec -- nix develop        # run a single command
 
 ## How it works
 
-The base image is a read-only squashfs containing a minimal NixOS system. A sparse ext3 overlay file stores all user modifications (installed packages, profiles, home directory). Apptainer merges them at runtime via overlayfs.
+The base image is a read-only squashfs containing a minimal NixOS system. A writable overlay stores all user modifications (installed packages, profiles, home directory). Apptainer merges them at runtime via overlayfs.
+
+Two overlay types are supported:
+
+- **Directory overlay** (default) — a plain directory tree. No size limit, best performance.
+- **ext3 overlay** — a sparse ext3 image file. Fixed capacity, useful when sparse disk allocation is preferred.
 
 ```
-base-nixos.sif (read-only)     overlay.img (writable, sparse)
+base-nixos.sif (read-only)     overlay (writable)
 ├── /nix/store/ (base)         ├── /nix/store/ (new packages)
 ├── /etc/ (NixOS config)       ├── /nix/var/nix/db/
 ├── /bin/sh                    ├── /home/<user>/
 └── /.singularity.d/           └── ...
          └──── overlayfs merge ────┘
 ```
-
-Nix builds inside the container use [nix-output-monitor](https://github.com/maralorn/nix-output-monitor) by default for cleaner output. A wrapper at `/usr/local/bin/nix` routes supported subcommands through `nom` on interactive terminals. Bypass with `NIX_APPTAINER_NO_NOM=1` or call `/run/sw/bin/nix` directly.
 
 The Nix build sandbox is enabled with fallback — on hosts that support user namespaces, builds are isolated; otherwise they run unsandboxed with a one-time warning.
 
@@ -93,7 +96,8 @@ source = "github"                    # "github", a URL, or a local file path
 repo = "RyanVidegar-Laird/nix-apptainer"  # GitHub repo for updates
 
 [overlay]
-size_mb = 51200                      # sparse overlay size in MB
+type = "directory"                   # "directory" (default) or "ext3"
+ext3_size_mb = 51200                 # sparse overlay size in MB (ext3 only)
 
 [enter]
 gpu = "nvidia"                       # "", "nvidia", or "rocm"
@@ -115,7 +119,8 @@ cp base-nixos.sif /shared/containers/
 
 ## Examples
 
-See [examples/bioinformatics/](examples/bioinformatics/) for a multi-environment flake demonstrating R, Python, and samtools dev shells with direnv auto-loading.
+- [examples/bioinformatics/](examples/bioinformatics/) — Multi-environment flake with R, Python, and samtools dev shells with direnv auto-loading
+- [examples/home-manager/](examples/home-manager/) — Integrating home-manager with the container overlay
 
 ## Development
 
