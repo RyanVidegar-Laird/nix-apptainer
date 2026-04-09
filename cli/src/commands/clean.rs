@@ -164,6 +164,8 @@ fn remove_with_label(label: &str, path: &Path) -> anyhow::Result<()> {
         return Ok(());
     }
     if path.is_dir() {
+        // Nix store paths in overlays are read-only; make writable before removal.
+        crate::util::make_writable_recursive(path);
         fs::remove_dir_all(path)
             .with_context(|| format!("Failed to remove {label}: {}", path.display()))?;
     } else {

@@ -47,6 +47,37 @@ pub fn overlay_usage_warning(on_disk_bytes: u64, allocated_bytes: u64, threshold
     }
 }
 
+/// Recursively add owner-write permissions so read-only nix store paths can be deleted.
+pub fn make_writable_recursive(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if let Ok(meta) = p.symlink_metadata()
+                && !meta.is_symlink()
+            {
+                let mut perms = meta.permissions();
+                let mode = perms.mode();
+                if mode & 0o200 == 0 {
+                    perms.set_mode(mode | 0o200);
+                    let _ = std::fs::set_permissions(&p, perms);
+                }
+                if meta.is_dir() {
+                    make_writable_recursive(&p);
+                }
+            }
+        }
+    }
+    if let Ok(meta) = std::fs::metadata(path) {
+        let mut perms = meta.permissions();
+        let mode = perms.mode();
+        if mode & 0o200 == 0 {
+            perms.set_mode(mode | 0o200);
+            let _ = std::fs::set_permissions(path, perms);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

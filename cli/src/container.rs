@@ -43,6 +43,16 @@ pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<St
     args.push("--overlay".to_string());
     args.push(opts.overlay.to_string());
 
+    // Isolate home directory: don't mount host $HOME, use the overlay's
+    // /home/<user> instead. Prevents host home-manager/dotfile conflicts.
+    if !opts.config.enter.mount_home {
+        args.push("--no-home".to_string());
+        if let Ok(user) = std::env::var("USER") {
+            args.push("--home".to_string());
+            args.push(format!("/home/{user}"));
+        }
+    }
+
     // GPU from config, overridden by flags
     let use_nv = opts.nv || opts.config.enter.gpu == GpuMode::Nvidia;
     let use_rocm = opts.rocm || opts.config.enter.gpu == GpuMode::Rocm;
@@ -61,6 +71,17 @@ pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<St
     for b in opts.bind {
         args.push("--bind".to_string());
         args.push(b.clone());
+    }
+
+    // Clear NixOS profile guards leaked from the host so /etc/profile
+    // re-sources set-environment (which adds $HOME/.nix-profile/bin to PATH)
+    for var in [
+        "__NIXOS_SET_ENVIRONMENT_DONE",
+        "__ETC_PROFILE_DONE",
+        "__ETC_BASHRC_SOURCED",
+    ] {
+        args.push("--env".to_string());
+        args.push(format!("{var}="));
     }
 
     // Passthrough args
@@ -258,5 +279,67 @@ mod tests {
         let args = build_apptainer_args(&opts, ContainerMode::Run);
         assert_eq!(args[0], "run");
         assert!(!args.contains(&"--quiet".to_string()));
+    }
+
+    #[test]
+    fn test_no_home_by_default() {
+        let paths = test_paths();
+        let overlay = test_overlay();
+        let config = test_config();
+        let opts = ContainerOpts {
+            sif_path: &paths.sif_path,
+            overlay: &overlay,
+            config: &config,
+            nv: false,
+            rocm: false,
+            bind: &[],
+            passthrough: &[],
+            quiet: false,
+        };
+        let args = build_apptainer_args(&opts, ContainerMode::Run);
+        assert!(args.contains(&"--no-home".to_string()));
+        assert!(args.contains(&"--home".to_string()));
+    }
+
+    #[test]
+    fn test_mount_home_skips_no_home() {
+        let paths = test_paths();
+        let overlay = test_overlay();
+        let mut config = test_config();
+        config.enter.mount_home = true;
+        let opts = ContainerOpts {
+            sif_path: &paths.sif_path,
+            overlay: &overlay,
+            config: &config,
+            nv: false,
+            rocm: false,
+            bind: &[],
+            passthrough: &[],
+            quiet: false,
+        };
+        let args = build_apptainer_args(&opts, ContainerMode::Run);
+        assert!(!args.contains(&"--no-home".to_string()));
+    }
+
+    #[test]
+    fn test_nixos_env_guards_cleared() {
+        let paths = test_paths();
+        let overlay = test_overlay();
+        let config = test_config();
+        let opts = ContainerOpts {
+            sif_path: &paths.sif_path,
+            overlay: &overlay,
+            config: &config,
+            nv: false,
+            rocm: false,
+            bind: &[],
+            passthrough: &[],
+            quiet: false,
+        };
+        let args = build_apptainer_args(&opts, ContainerMode::Run);
+        assert!(args.contains(&"--env".to_string()));
+        assert!(args.contains(&"__NIXOS_SET_ENVIRONMENT_DONE=".to_string()));
+        assert!(args.contains(&"__ETC_PROFILE_DONE=".to_string()));
+        assert!(args.contains(&"__ETC_BASHRC_SOURCED=".to_string()));
     }
 }

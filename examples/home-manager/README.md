@@ -2,7 +2,7 @@
 
 Use [home-manager](https://github.com/nix-community/home-manager) to
 declaratively manage your shell, editor, and tools inside the container.
-Changes persist in the ext3 overlay across sessions.
+Changes persist in the overlay across sessions.
 
 ## How it works
 
@@ -127,11 +127,21 @@ Push this to GitHub and reference it in the activation command below.
 
 ## Activation
 
+The container's home directory is isolated from the host by default, so
+you need to bind-mount the directory containing your config flake:
+
 ```bash
-# Enter the container
-nix-apptainer enter
+# Enter the container with your config repo accessible
+nix-apptainer enter -B /path/to/your/configs:/path/to/your/configs
 
 # First time only — activate home-manager
+nix run home-manager -- switch --flake /path/to/your/configs#container --impure
+```
+
+Or if your config is on GitHub:
+
+```bash
+nix-apptainer enter
 nix run home-manager -- switch --flake github:youruser/yourrepo#container --impure
 ```
 
@@ -142,6 +152,13 @@ use `home-manager switch` directly.
 
 Restart your shell (or run your configured shell, e.g. `fish`) to pick
 up the new configuration.
+
+> **Tip:** Add frequently used bind mounts to your `config.toml` so you
+> don't need to pass `-B` every time:
+> ```toml
+> [enter]
+> bind = ["/home/you/configs:/home/you/configs", "/scratch:/scratch"]
+> ```
 
 ## Updating
 
@@ -161,8 +178,13 @@ The `--refresh` flag bypasses the flake cache to pick up the latest commit.
   [binary cache](https://nixos.wiki/wiki/Binary_Cache) or activating
   from a node with internet access.
 - **Overlay space**: a typical home-manager activation uses 1-3 GB of
-  overlay space depending on your module set. The CLI warns at 80% usage.
+  overlay space depending on your module set. For ext3 overlays, the CLI
+  warns at 80% usage. Directory overlays have no fixed limit.
 - **No secrets**: avoid pulling SOPS/agenix secrets into the container.
   Use `builtins.getEnv` for identity only.
+- **Isolated home**: the container's `$HOME` is separate from the host
+  by default, so home-manager inside the container won't interfere with
+  a host home-manager setup. Use `-B` or `bind` in `config.toml` to
+  share specific directories.
 - **Overlay is per-machine**: each machine gets its own overlay. Only
   the SIF image is portable.

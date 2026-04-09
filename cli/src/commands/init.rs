@@ -265,6 +265,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
                         .interact()?
                 };
                 if should_recreate {
+                    crate::util::make_writable_recursive(&paths.overlay_dir);
                     std::fs::remove_dir_all(&paths.overlay_dir)?;
                     println!("Creating directory overlay...");
                     overlay::create_directory_overlay(&paths.overlay_dir)?;

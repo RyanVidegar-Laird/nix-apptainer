@@ -70,6 +70,8 @@ base-nixos.sif (read-only)     overlay (writable)
          └──── overlayfs merge ────┘
 ```
 
+By default, the host `$HOME` is **not** mounted into the container. The container gets its own home directory inside the overlay, preventing conflicts with host dotfiles and home-manager configurations. Use `--bind` to expose specific host directories (project dirs, scratch, data) as needed. Set `mount_home = true` in `config.toml` to mount the host home instead.
+
 The Nix build sandbox is enabled with fallback — on hosts that support user namespaces, builds are isolated; otherwise they run unsandboxed with a one-time warning.
 
 ## Configuration
@@ -103,6 +105,7 @@ ext3_size_mb = 51200                 # sparse overlay size in MB (ext3 only)
 gpu = "nvidia"                       # "", "nvidia", or "rocm"
 bind = ["/scratch:/scratch", "/data:/data"]
 quiet = false                        # suppress apptainer stderr warnings
+mount_home = false                   # true to bind-mount host $HOME (default: false)
 ```
 
 ## Distributing to teammates

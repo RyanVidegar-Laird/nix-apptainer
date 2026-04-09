@@ -4,6 +4,12 @@
 
 set -euo pipefail
 
+# Clear NixOS profile guards leaked from the host so /etc/profile
+# re-sources set-environment (which adds $HOME/.nix-profile/bin to PATH).
+# Apptainer propagates host env into the container; these exported guards
+# cause the container's /etc/profile to skip its own PATH setup.
+unset __NIXOS_SET_ENVIRONMENT_DONE __ETC_PROFILE_DONE __ETC_BASHRC_SOURCED
+
 # Ensure PATH includes nix and system tools (needed for the TERM check;
 # the login shell will get full PATH from /etc/profile)
 export PATH="/usr/local/bin:/run/sw/bin:/bin:/usr/bin:${PATH:-}"
