@@ -47,10 +47,9 @@ pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<St
     // /home/<user> instead. Prevents host home-manager/dotfile conflicts.
     if !opts.config.enter.mount_home {
         args.push("--no-home".to_string());
-        if let Ok(user) = std::env::var("USER") {
-            args.push("--home".to_string());
-            args.push(format!("/home/{user}"));
-        }
+        let user = std::env::var("USER").unwrap_or_else(|_| "nixuser".to_string());
+        args.push("--home".to_string());
+        args.push(format!("/home/{user}"));
     }
 
     // GPU from config, overridden by flags
