@@ -64,7 +64,7 @@ pkgs.testers.runNixOSTest {
         )
         out = machine.succeed(as_testuser(query, nix_apptainer_home=home, extra_env=extra_env))
         paths = int(out.strip())
-        if paths == 0:
+        if paths < 10:
             print(f"\n=== assert_db_populated FAILED in phase: {phase} ===")
             _, ls_out = machine.execute(as_testuser(
                 "ls -la $NIX_APPTAINER_HOME/overlay/upper/nix/var/nix 2>&1 || true",
@@ -85,7 +85,7 @@ pkgs.testers.runNixOSTest {
             print("--- raw nix-store query stderr ---")
             print(query_out)
             raise Exception(
-                f"[{phase}] Nix DB preseed produced 0 paths — "
+                f"[{phase}] Nix DB query returned only {paths} paths (expected 100+) — "
                 f"check /nix/var/nix perms and preseed stderr above"
             )
 
