@@ -50,7 +50,7 @@
             inherit sandbox cli;
             default = sifImage;
             vm-test = import ./tests/vm-test.nix {
-              inherit pkgs sifImage scripts;
+              inherit pkgs sifImage cli;
             };
           };
 
