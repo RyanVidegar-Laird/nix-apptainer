@@ -43,18 +43,17 @@ pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<St
     args.push("--overlay".to_string());
     args.push(opts.overlay.to_string());
 
-    // Isolate home directory: don't mount host $HOME or CWD, use the
-    // overlay's /home/<user> instead. Prevents host dotfile conflicts.
-    // Note: --home PATH would re-bind the host path, so we set HOME via --env.
+    // Isolate home directory: don't mount host $HOME or CWD into the
+    // container. Prevents host dotfile conflicts.
+    // HOME is set by Apptainer from the container's /etc/passwd.
+    // For `enter` (run mode), entrypoint.sh creates $HOME and bash --login
+    // cds there. For `exec` mode, / is a safe starting directory.
     if !opts.config.enter.mount_home {
         args.push("--no-home".to_string());
         args.push("--no-mount".to_string());
         args.push("cwd".to_string());
-        // HOME is set automatically by Apptainer from the container's /etc/passwd.
-        // --pwd sets the initial working directory to the container home.
-        let user = std::env::var("USER").unwrap_or_else(|_| "nixuser".to_string());
         args.push("--pwd".to_string());
-        args.push(format!("/home/{user}"));
+        args.push("/".to_string());
     }
 
     // GPU from config, overridden by flags

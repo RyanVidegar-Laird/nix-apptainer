@@ -60,7 +60,7 @@ pkgs.testers.runNixOSTest {
     def assert_db_populated(phase, home="/home/testuser/.nix-apptainer", extra_env=""):
         query = (
             "nix-apptainer exec -- "
-            "nix-store --query --requisites /run/current-system 2>&1 | wc -l"
+            "nix-store --query --requisites /run/current-system 2>/dev/null | wc -l"
         )
         out = machine.succeed(as_testuser(query, nix_apptainer_home=home, extra_env=extra_env))
         paths = int(out.strip())
@@ -121,8 +121,16 @@ pkgs.testers.runNixOSTest {
     with subtest("Phase 1: DB preseed populated the store"):
         assert_db_populated(phase="phase1-directory-init", home=P1_HOME)
 
-    with subtest("Phase 1: re-entry preserves DB after copy-up"):
+    with subtest("Phase 1: re-entry via exec preserves DB after copy-up"):
         assert_db_populated(phase="phase1-directory-reentry", home=P1_HOME)
+
+    with subtest("Phase 1: exec inside container succeeds"):
+        # Verify exec can run arbitrary commands, not just nix-store queries.
+        out = machine.succeed(as_testuser(
+            'nix-apptainer exec -- /bin/sh -c "echo container-ok"',
+            nix_apptainer_home=P1_HOME,
+        ))
+        assert "container-ok" in out, f"Expected container-ok in: {out}"
 
     with subtest("Phase 1: status reports directory overlay type"):
         out = machine.succeed(as_testuser("nix-apptainer status", nix_apptainer_home=P1_HOME))
