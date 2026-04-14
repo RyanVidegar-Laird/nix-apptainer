@@ -51,6 +51,44 @@ pkgs.testers.runNixOSTest {
             f"{extra_env}{cmd}'"
         )
 
+    # ------------------------------------------------------------------
+    # Helper: assert that the Nix DB is populated in the current overlay.
+    # Runs a SQLite-read-heavy query IMMEDIATELY after init with no warm-up,
+    # so a silently-failed preseed produces 0 paths and fails loudly here.
+    # On failure, dumps diagnostic state to make CI output self-explanatory.
+    # ------------------------------------------------------------------
+    def assert_db_populated(phase, home="/home/testuser/.nix-apptainer", extra_env=""):
+        query = (
+            "nix-apptainer exec -- "
+            "nix-store --query --requisites /run/current-system 2>&1 | wc -l"
+        )
+        out = machine.succeed(as_testuser(query, nix_apptainer_home=home, extra_env=extra_env))
+        paths = int(out.strip())
+        if paths == 0:
+            print(f"\n=== assert_db_populated FAILED in phase: {phase} ===")
+            _, ls_out = machine.execute(as_testuser(
+                "ls -la $NIX_APPTAINER_HOME/overlay/upper/nix/var/nix 2>&1 || true",
+                nix_apptainer_home=home, extra_env=extra_env,
+            ))
+            print("--- /nix/var/nix in overlay upper ---")
+            print(ls_out)
+            _, status_out = machine.execute(as_testuser(
+                "nix-apptainer status 2>&1 || true",
+                nix_apptainer_home=home, extra_env=extra_env,
+            ))
+            print("--- nix-apptainer status ---")
+            print(status_out)
+            _, query_out = machine.execute(as_testuser(
+                "nix-apptainer exec -- nix-store --query --requisites /run/current-system 2>&1 || true",
+                nix_apptainer_home=home, extra_env=extra_env,
+            ))
+            print("--- raw nix-store query stderr ---")
+            print(query_out)
+            raise Exception(
+                f"[{phase}] Nix DB preseed produced 0 paths — "
+                f"check /nix/var/nix perms and preseed stderr above"
+            )
+
     machine.wait_for_unit("default.target")
 
     # ------------------------------------------------------------------
@@ -61,5 +99,38 @@ pkgs.testers.runNixOSTest {
 
     with subtest("Phase 0: SIF is readable by testuser"):
         machine.succeed(as_testuser("test -r /etc/test/base-nixos.sif"))
+
+    # ------------------------------------------------------------------
+    # Phase 1 — Directory overlay lifecycle (v0.5.0's new default)
+    # ------------------------------------------------------------------
+    P1_HOME = "/home/testuser/.nix-apptainer"
+
+    with subtest("Phase 1: init with directory overlay"):
+        machine.succeed(as_testuser(
+            "nix-apptainer init --yes "
+            "--sif /etc/test/base-nixos.sif "
+            "--overlay-type dir",
+            nix_apptainer_home=P1_HOME,
+        ))
+        # Filesystem layout — note CLI copies SIF to base.sif, not base-nixos.sif
+        for f in ["config.toml", "state.json", "base.sif"]:
+            machine.succeed(as_testuser(f"test -f $NIX_APPTAINER_HOME/{f}", nix_apptainer_home=P1_HOME))
+        machine.succeed(as_testuser("test -d $NIX_APPTAINER_HOME/overlay/upper", nix_apptainer_home=P1_HOME))
+        machine.succeed(as_testuser("test -d $NIX_APPTAINER_HOME/overlay/work", nix_apptainer_home=P1_HOME))
+
+    with subtest("Phase 1: DB preseed populated the store"):
+        assert_db_populated(phase="phase1-directory-init", home=P1_HOME)
+
+    with subtest("Phase 1: re-entry preserves DB after copy-up"):
+        assert_db_populated(phase="phase1-directory-reentry", home=P1_HOME)
+
+    with subtest("Phase 1: status reports directory overlay type"):
+        out = machine.succeed(as_testuser("nix-apptainer status", nix_apptainer_home=P1_HOME))
+        assert "directory" in out.lower(), f"status missing 'directory': {out}"
+
+    with subtest("Phase 1: clean tears down overlay, preserves config"):
+        machine.succeed(as_testuser("nix-apptainer clean --all", nix_apptainer_home=P1_HOME))
+        machine.fail(as_testuser("test -d $NIX_APPTAINER_HOME/overlay/upper", nix_apptainer_home=P1_HOME))
+        machine.fail(as_testuser("test -f $NIX_APPTAINER_HOME/config.toml", nix_apptainer_home=P1_HOME))
   '';
 }
