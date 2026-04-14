@@ -132,5 +132,35 @@ pkgs.testers.runNixOSTest {
         machine.succeed(as_testuser("nix-apptainer clean --all", nix_apptainer_home=P1_HOME))
         machine.fail(as_testuser("test -d $NIX_APPTAINER_HOME/overlay/upper", nix_apptainer_home=P1_HOME))
         machine.fail(as_testuser("test -f $NIX_APPTAINER_HOME/config.toml", nix_apptainer_home=P1_HOME))
+
+    # ------------------------------------------------------------------
+    # Phase 2 — ext3 overlay lifecycle (regression floor for old default)
+    # ------------------------------------------------------------------
+    P2_HOME = "/home/testuser/.nix-apptainer-ext3"
+
+    with subtest("Phase 2: init with ext3 overlay (64 MB)"):
+        machine.succeed(as_testuser(
+            "nix-apptainer init --yes "
+            "--sif /etc/test/base-nixos.sif "
+            "--overlay-type ext3 "
+            "--overlay-size 64",
+            nix_apptainer_home=P2_HOME,
+        ))
+        for f in ["config.toml", "state.json", "base.sif", "overlay.img"]:
+            machine.succeed(as_testuser(f"test -f $NIX_APPTAINER_HOME/{f}", nix_apptainer_home=P2_HOME))
+
+    with subtest("Phase 2: DB preseed populated the store (ext3)"):
+        assert_db_populated(phase="phase2-ext3-init", home=P2_HOME)
+
+    with subtest("Phase 2: re-entry preserves DB after copy-up (ext3)"):
+        assert_db_populated(phase="phase2-ext3-reentry", home=P2_HOME)
+
+    with subtest("Phase 2: status reports ext3 overlay type"):
+        out = machine.succeed(as_testuser("nix-apptainer status", nix_apptainer_home=P2_HOME))
+        assert "ext3" in out.lower(), f"status missing 'ext3': {out}"
+
+    with subtest("Phase 2: clean tears down ext3 overlay"):
+        machine.succeed(as_testuser("nix-apptainer clean --all", nix_apptainer_home=P2_HOME))
+        machine.fail(as_testuser("test -f $NIX_APPTAINER_HOME/overlay.img", nix_apptainer_home=P2_HOME))
   '';
 }
