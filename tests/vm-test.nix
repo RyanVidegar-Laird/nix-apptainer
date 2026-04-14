@@ -91,6 +91,25 @@ pkgs.testers.runNixOSTest {
                 f"check /nix/var/nix perms and preseed stderr above"
             )
 
+    # ------------------------------------------------------------------
+    # Helper: assert that the Nix store DB is writable (not just readable).
+    # Runs a command that opens the DB read-write, catching the permission
+    # bug where reads work (from squashfs) but writes fail (overlay perms).
+    # ------------------------------------------------------------------
+    def assert_db_writable(phase, home="/home/testuser/.nix-apptainer", extra_env=""):
+        cmd = (
+            "nix-apptainer exec -- "
+            "nix store gc --dry-run 2>&1"
+        )
+        out = machine.succeed(as_testuser(cmd, nix_apptainer_home=home, extra_env=extra_env))
+        if "Permission denied" in out:
+            print(f"\n=== assert_db_writable FAILED in phase: {phase} ===")
+            print(out)
+            raise Exception(
+                f"[{phase}] Nix store DB is not writable — "
+                f"'Permission denied' in output (overlay ownership bug)"
+            )
+
     machine.wait_for_unit("default.target")
 
     # ------------------------------------------------------------------
@@ -125,6 +144,9 @@ pkgs.testers.runNixOSTest {
 
     with subtest("Phase 1: re-entry via exec preserves DB after copy-up"):
         assert_db_populated(phase="phase1-directory-reentry", home=P1_HOME)
+
+    with subtest("Phase 1: Nix DB is writable (not just readable)"):
+        assert_db_writable(phase="phase1-directory-writable", home=P1_HOME)
 
     with subtest("Phase 1: exec inside container succeeds"):
         # Verify exec can run arbitrary commands, not just nix-store queries.
@@ -164,6 +186,9 @@ pkgs.testers.runNixOSTest {
 
     with subtest("Phase 2: re-entry preserves DB after copy-up (ext3)"):
         assert_db_populated(phase="phase2-ext3-reentry", home=P2_HOME)
+
+    with subtest("Phase 2: Nix DB is writable (ext3)"):
+        assert_db_writable(phase="phase2-ext3-writable", home=P2_HOME)
 
     with subtest("Phase 2: status reports ext3 overlay type"):
         out = machine.succeed(as_testuser("nix-apptainer status", nix_apptainer_home=P2_HOME))
