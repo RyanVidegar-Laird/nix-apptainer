@@ -162,5 +162,67 @@ pkgs.testers.runNixOSTest {
     with subtest("Phase 2: clean tears down ext3 overlay"):
         machine.succeed(as_testuser("nix-apptainer clean --all", nix_apptainer_home=P2_HOME))
         machine.fail(as_testuser("test -f $NIX_APPTAINER_HOME/overlay.img", nix_apptainer_home=P2_HOME))
+
+    # ------------------------------------------------------------------
+    # Phase 3 — Adversarial: USER unset (guards commit 2da4049)
+    # ------------------------------------------------------------------
+    P3_HOME = "/home/testuser/.nix-apptainer-nouser"
+
+    with subtest("Phase 3: init with USER unset"):
+        machine.succeed(as_testuser(
+            "nix-apptainer init --yes "
+            "--sif /etc/test/base-nixos.sif "
+            "--overlay-type dir",
+            nix_apptainer_home=P3_HOME,
+            extra_env="unset USER && ",
+        ))
+
+    with subtest("Phase 3: DB preseed works with USER unset"):
+        assert_db_populated(
+            phase="phase3-user-unset",
+            home=P3_HOME,
+            extra_env="unset USER && ",
+        )
+
+    # ------------------------------------------------------------------
+    # Phase 4 — Adversarial: no outbound network
+    # ------------------------------------------------------------------
+    P4_HOME = "/home/testuser/.nix-apptainer-offline"
+
+    with subtest("Phase 4: init --sif <local> succeeds with outbound blocked"):
+        machine.succeed("iptables -I OUTPUT -o eth0 -j DROP")
+        try:
+            machine.succeed(as_testuser(
+                "nix-apptainer init --yes "
+                "--sif /etc/test/base-nixos.sif "
+                "--overlay-type dir",
+                nix_apptainer_home=P4_HOME,
+            ))
+            assert_db_populated(
+                phase="phase4-offline",
+                home=P4_HOME,
+            )
+        finally:
+            machine.succeed("iptables -D OUTPUT -o eth0 -j DROP")
+
+    # ------------------------------------------------------------------
+    # Phase 5 — Adversarial: non-standard NIX_APPTAINER_HOME
+    # ------------------------------------------------------------------
+    P5_HOME = "/tmp/alt-root/na-home"
+
+    with subtest("Phase 5: init with data dir outside $HOME"):
+        machine.succeed("mkdir -p /tmp/alt-root && chown testuser /tmp/alt-root")
+        machine.succeed(as_testuser(
+            "nix-apptainer init --yes "
+            "--sif /etc/test/base-nixos.sif "
+            "--overlay-type dir",
+            nix_apptainer_home=P5_HOME,
+        ))
+
+    with subtest("Phase 5: DB preseed works in non-standard home"):
+        assert_db_populated(
+            phase="phase5-non-standard-home",
+            home=P5_HOME,
+        )
   '';
 }
