@@ -303,7 +303,8 @@ mod tests {
         assert!(args.contains(&"--no-home".to_string()));
         assert!(args.contains(&"--no-mount".to_string()));
         assert!(args.contains(&"cwd".to_string()));
-        assert!(args.contains(&"--pwd".to_string()));
+        let pwd_idx = args.iter().position(|a| a == "--pwd").unwrap();
+        assert_eq!(args[pwd_idx + 1], "/", "--pwd must target / to avoid FATAL on fresh overlays");
         assert!(!args.contains(&"--home".to_string()));
     }
 

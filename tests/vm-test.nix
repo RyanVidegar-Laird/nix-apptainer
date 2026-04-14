@@ -64,6 +64,8 @@ pkgs.testers.runNixOSTest {
         )
         out = machine.succeed(as_testuser(query, nix_apptainer_home=home, extra_env=extra_env))
         paths = int(out.strip())
+        # A healthy NixOS closure has ~500 paths. Threshold of 10 catches
+        # silent failures while avoiding flakiness from count variance.
         if paths < 10:
             print(f"\n=== assert_db_populated FAILED in phase: {phase} ===")
             _, ls_out = machine.execute(as_testuser(
