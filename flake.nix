@@ -1,11 +1,11 @@
 {
   nixConfig = {
     extra-substituters = [
-      "https://cache.garnix.io"
+      "https://nix-apptainer.cachix.org"
     ];
 
     extra-trusted-public-keys = [
-      "cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g="
+      "nix-apptainer.cachix.org-1:KQ5mUFLDjlRGR9IlYnoF8ptgGIJcF8zgbz/Wy+VB6Cg="
     ];
   };
 
