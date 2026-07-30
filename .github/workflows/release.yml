@@ -18,11 +18,11 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: cachix/install-nix-action@v31
         with:
-          extra-conf: |
-            extra-substituters = https://cache.garnix.io
-            extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
+          extra_nix_config: |
+            extra-substituters = https://nix-apptainer.cachix.org
+            extra-trusted-public-keys = nix-apptainer.cachix.org-1:KQ5mUFLDjlRGR9IlYnoF8ptgGIJcF8zgbz/Wy+VB6Cg=
 
       - name: Validate version matches tag
         run: |
