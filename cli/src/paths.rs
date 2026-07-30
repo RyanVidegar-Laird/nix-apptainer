@@ -40,11 +40,11 @@ impl AppPaths {
     }
 
     fn from_xdg() -> anyhow::Result<Self> {
-        let xdg_dirs = xdg::BaseDirectories::with_prefix("nix-apptainer")
-            .map_err(|e| anyhow::anyhow!("Could not determine XDG directories: {e}"))?;
-        let config_dir = xdg_dirs.get_config_home();
-        let data_dir = xdg_dirs.get_data_home();
-        let cache_dir = xdg_dirs.get_cache_home();
+        let xdg_dirs = xdg::BaseDirectories::with_prefix("nix-apptainer");
+        let missing = || anyhow::anyhow!("Could not determine XDG directories: $HOME is not set");
+        let config_dir = xdg_dirs.get_config_home().ok_or_else(missing)?;
+        let data_dir = xdg_dirs.get_data_home().ok_or_else(missing)?;
+        let cache_dir = xdg_dirs.get_cache_home().ok_or_else(missing)?;
         Ok(Self {
             config_file: config_dir.join("config.toml"),
             data_dir: data_dir.clone(),
