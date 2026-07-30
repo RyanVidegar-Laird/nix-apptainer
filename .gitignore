@@ -4,6 +4,10 @@
 # Nix
 /.direnv
 result
+result-*
+
+# Rust
+target/
 
 # Apptainer
 *.sif
