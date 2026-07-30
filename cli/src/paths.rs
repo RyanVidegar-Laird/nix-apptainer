@@ -64,30 +64,57 @@ mod tests {
     #[test]
     fn test_from_base_dir() {
         let paths = AppPaths::from_base_dir(PathBuf::from("/tmp/nix-apptainer-test"));
-        assert_eq!(paths.config_file, PathBuf::from("/tmp/nix-apptainer-test/config.toml"));
-        assert_eq!(paths.sif_path, PathBuf::from("/tmp/nix-apptainer-test/base.sif"));
-        assert_eq!(paths.overlay_path, PathBuf::from("/tmp/nix-apptainer-test/overlay.img"));
-        assert_eq!(paths.state_file, PathBuf::from("/tmp/nix-apptainer-test/state.json"));
-        assert_eq!(paths.cache_dir, PathBuf::from("/tmp/nix-apptainer-test/cache"));
+        assert_eq!(
+            paths.config_file,
+            PathBuf::from("/tmp/nix-apptainer-test/config.toml")
+        );
+        assert_eq!(
+            paths.sif_path,
+            PathBuf::from("/tmp/nix-apptainer-test/base.sif")
+        );
+        assert_eq!(
+            paths.overlay_path,
+            PathBuf::from("/tmp/nix-apptainer-test/overlay.img")
+        );
+        assert_eq!(
+            paths.state_file,
+            PathBuf::from("/tmp/nix-apptainer-test/state.json")
+        );
+        assert_eq!(
+            paths.cache_dir,
+            PathBuf::from("/tmp/nix-apptainer-test/cache")
+        );
     }
 
     #[test]
     fn test_overlay_dir_from_base() {
         let paths = AppPaths::from_base_dir(PathBuf::from("/tmp/nix-apptainer-test"));
-        assert_eq!(paths.overlay_dir, PathBuf::from("/tmp/nix-apptainer-test/overlay"));
+        assert_eq!(
+            paths.overlay_dir,
+            PathBuf::from("/tmp/nix-apptainer-test/overlay")
+        );
     }
 
     #[test]
     fn test_overlay_dir_resolve_with_data_dir() {
         let paths = AppPaths::resolve_with_data_dir(PathBuf::from("/scratch/user/nix"));
-        assert_eq!(paths.overlay_dir, PathBuf::from("/scratch/user/nix/overlay"));
+        assert_eq!(
+            paths.overlay_dir,
+            PathBuf::from("/scratch/user/nix/overlay")
+        );
     }
 
     #[test]
     fn test_resolve_with_data_dir() {
         let paths = AppPaths::resolve_with_data_dir(PathBuf::from("/scratch/user/nix"));
         assert_eq!(paths.sif_path, PathBuf::from("/scratch/user/nix/base.sif"));
-        assert_eq!(paths.overlay_path, PathBuf::from("/scratch/user/nix/overlay.img"));
-        assert_eq!(paths.config_file, PathBuf::from("/scratch/user/nix/config.toml"));
+        assert_eq!(
+            paths.overlay_path,
+            PathBuf::from("/scratch/user/nix/overlay.img")
+        );
+        assert_eq!(
+            paths.config_file,
+            PathBuf::from("/scratch/user/nix/config.toml")
+        );
     }
 }

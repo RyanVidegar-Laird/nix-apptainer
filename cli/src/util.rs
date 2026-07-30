@@ -30,7 +30,11 @@ pub fn timestamp_now() -> u64 {
 /// `allocated_bytes` is the file size (from `MetadataExt::len()`), representing
 /// the ext3 filesystem capacity.
 /// Returns None if usage is below the threshold percentage.
-pub fn overlay_usage_warning(on_disk_bytes: u64, allocated_bytes: u64, threshold_pct: u8) -> Option<String> {
+pub fn overlay_usage_warning(
+    on_disk_bytes: u64,
+    allocated_bytes: u64,
+    threshold_pct: u8,
+) -> Option<String> {
     if allocated_bytes == 0 {
         return None;
     }

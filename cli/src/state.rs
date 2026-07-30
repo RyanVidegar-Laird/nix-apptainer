@@ -37,11 +37,11 @@ impl State {
     /// Save state to JSON file. Creates parent directories if needed.
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create state directory: {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create state directory: {}", parent.display())
+            })?;
         }
-        let contents = serde_json::to_string_pretty(self)
-            .context("Failed to serialize state")?;
+        let contents = serde_json::to_string_pretty(self).context("Failed to serialize state")?;
         std::fs::write(path, contents)
             .with_context(|| format!("Failed to write state: {}", path.display()))
     }

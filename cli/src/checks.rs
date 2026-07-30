@@ -148,8 +148,14 @@ mod tests {
     impl MockSystem {
         fn with_apptainer() -> Self {
             let mut commands = std::collections::HashMap::new();
-            commands.insert("apptainer".to_string(), "apptainer version 1.3.0".to_string());
-            commands.insert("fusermount3".to_string(), "fusermount3 version 3.16.1".to_string());
+            commands.insert(
+                "apptainer".to_string(),
+                "apptainer version 1.3.0".to_string(),
+            );
+            commands.insert(
+                "fusermount3".to_string(),
+                "fusermount3 version 3.16.1".to_string(),
+            );
             Self {
                 commands,
                 disk_bytes: Some(10 * 1_073_741_824),
@@ -203,7 +209,10 @@ mod tests {
     #[test]
     fn test_find_apptainer_singularity_fallback() {
         let mut sys = MockSystem::empty();
-        sys.commands.insert("singularity".to_string(), "singularity version 3.11".to_string());
+        sys.commands.insert(
+            "singularity".to_string(),
+            "singularity version 3.11".to_string(),
+        );
         let result = find_apptainer(&sys);
         assert!(result.passed);
         assert!(result.message.contains("singularity"));
@@ -212,7 +221,8 @@ mod tests {
     #[test]
     fn test_check_fuse_dev_fuse() {
         let mut sys = MockSystem::empty();
-        sys.existing_paths.push(std::path::PathBuf::from("/dev/fuse"));
+        sys.existing_paths
+            .push(std::path::PathBuf::from("/dev/fuse"));
         let result = check_fuse(&sys);
         assert!(result.passed);
     }
@@ -220,7 +230,10 @@ mod tests {
     #[test]
     fn test_check_fuse_fusermount() {
         let mut sys = MockSystem::empty();
-        sys.commands.insert("fusermount3".to_string(), "fusermount3 version 3.16.1".to_string());
+        sys.commands.insert(
+            "fusermount3".to_string(),
+            "fusermount3 version 3.16.1".to_string(),
+        );
         let result = check_fuse(&sys);
         assert!(result.passed);
     }

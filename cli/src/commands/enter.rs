@@ -1,9 +1,9 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use std::process::Command;
 
 use crate::checks;
 use crate::config::{Config, OverlayType};
-use crate::container::{build_apptainer_args, ContainerMode, ContainerOpts};
+use crate::container::{ContainerMode, ContainerOpts, build_apptainer_args};
 use crate::paths::AppPaths;
 use crate::system::RealSystem;
 
@@ -41,8 +41,7 @@ pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
         }
     }
 
-    let apptainer = checks::apptainer_binary(&sys)
-        .context("apptainer/singularity not found")?;
+    let apptainer = checks::apptainer_binary(&sys).context("apptainer/singularity not found")?;
     let opts = ContainerOpts {
         sif_path: &paths.sif_path,
         overlay: &overlay,

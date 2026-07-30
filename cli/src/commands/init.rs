@@ -154,9 +154,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
             .default(0)
             .interact()?;
         if selection == 1 {
-            let custom: String = Input::new()
-                .with_prompt("Enter path")
-                .interact_text()?;
+            let custom: String = Input::new().with_prompt("Enter path").interact_text()?;
             AppPaths::resolve_with_data_dir(PathBuf::from(custom))
         } else {
             paths
@@ -283,7 +281,9 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
                     true
                 } else {
                     Confirm::new()
-                        .with_prompt("Overlay already exists. Overwrite? (destroys all installed packages)")
+                        .with_prompt(
+                            "Overlay already exists. Overwrite? (destroys all installed packages)",
+                        )
                         .default(false)
                         .interact()?
                 };
@@ -302,21 +302,31 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     }
 
     // --- Pre-seed Nix DB ---
-    let apptainer = checks::apptainer_binary(&sys)
-        .context("apptainer/singularity not found")?;
+    let apptainer = checks::apptainer_binary(&sys).context("apptainer/singularity not found")?;
     let overlay_str = match overlay_type {
         OverlayType::Directory => paths.overlay_dir.to_string_lossy().to_string(),
         OverlayType::Ext3 => paths.overlay_path.to_string_lossy().to_string(),
     };
     println!("Pre-seeding Nix store database...");
-    overlay::preseed_nix_db(&sys, &apptainer, &overlay_str, &paths.sif_path.to_string_lossy())?;
+    overlay::preseed_nix_db(
+        &sys,
+        &apptainer,
+        &overlay_str,
+        &paths.sif_path.to_string_lossy(),
+    )?;
 
     // --- Save config and state ---
-    save_init_state(&paths, &sif_source, &overlay_type, ext3_size_mb, &version, hash)?;
+    save_init_state(
+        &paths,
+        &sif_source,
+        &overlay_type,
+        ext3_size_mb,
+        &version,
+        hash,
+    )?;
 
     println!();
     println!("Setup complete! Run `nix-apptainer enter` to start.");
 
     Ok(())
 }
-

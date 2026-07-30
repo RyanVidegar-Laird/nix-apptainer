@@ -59,7 +59,11 @@ pub fn run() -> anyhow::Result<()> {
     // Apptainer
     let apptainer_info = {
         let r = checks::find_apptainer(&sys);
-        if r.passed { r.message } else { "not found".to_string() }
+        if r.passed {
+            r.message
+        } else {
+            "not found".to_string()
+        }
     };
 
     // GPU
@@ -113,6 +117,9 @@ mod tests {
             crate::util::human_size(allocated),
             crate::util::human_size(capacity)
         );
-        assert_eq!(result, "ext3 (128.0 MB on disk / 2.0 GB allocated / 50.0 GB capacity)");
+        assert_eq!(
+            result,
+            "ext3 (128.0 MB on disk / 2.0 GB allocated / 50.0 GB capacity)"
+        );
     }
 }

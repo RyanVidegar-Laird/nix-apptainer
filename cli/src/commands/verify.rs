@@ -1,4 +1,4 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use std::process::Command;
 
 use crate::checks;
@@ -20,8 +20,7 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     let sys = RealSystem;
-    let apptainer = checks::apptainer_binary(&sys)
-        .context("apptainer/singularity not found")?;
+    let apptainer = checks::apptainer_binary(&sys).context("apptainer/singularity not found")?;
 
     println!("Verifying SIF signature: {}", paths.sif_path.display());
 
@@ -45,6 +44,8 @@ pub fn run() -> anyhow::Result<()> {
         println!("\nSignature verification passed.");
         Ok(())
     } else {
-        bail!("Signature verification failed. Have you imported the signing key? See: apptainer key pull")
+        bail!(
+            "Signature verification failed. Have you imported the signing key? See: apptainer key pull"
+        )
     }
 }

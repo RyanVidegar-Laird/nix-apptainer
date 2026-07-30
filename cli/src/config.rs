@@ -111,11 +111,11 @@ impl Config {
     /// Save config to a TOML file. Creates parent directories if needed.
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create config directory: {}", parent.display())
+            })?;
         }
-        let contents = toml::to_string_pretty(self)
-            .context("Failed to serialize config")?;
+        let contents = toml::to_string_pretty(self).context("Failed to serialize config")?;
         std::fs::write(path, contents)
             .with_context(|| format!("Failed to write config: {}", path.display()))
     }
@@ -153,10 +153,14 @@ mod tests {
     #[test]
     fn test_quiet_from_toml() {
         let mut f = NamedTempFile::new().unwrap();
-        writeln!(f, r#"
+        writeln!(
+            f,
+            r#"
 [enter]
 quiet = true
-"#).unwrap();
+"#
+        )
+        .unwrap();
         let config = Config::load(f.path()).unwrap();
         assert!(config.enter.quiet);
     }
@@ -170,11 +174,15 @@ quiet = true
     #[test]
     fn test_overlay_type_ext3_from_toml() {
         let mut f = NamedTempFile::new().unwrap();
-        writeln!(f, r#"
+        writeln!(
+            f,
+            r#"
 [overlay]
 type = "ext3"
 ext3_size_mb = 20480
-"#).unwrap();
+"#
+        )
+        .unwrap();
         let config = Config::load(f.path()).unwrap();
         assert_eq!(config.overlay.overlay_type, OverlayType::Ext3);
         assert_eq!(config.overlay.ext3_size_mb, 20480);
@@ -183,10 +191,14 @@ ext3_size_mb = 20480
     #[test]
     fn test_overlay_size_mb_alias() {
         let mut f = NamedTempFile::new().unwrap();
-        writeln!(f, r#"
+        writeln!(
+            f,
+            r#"
 [overlay]
 size_mb = 30000
-"#).unwrap();
+"#
+        )
+        .unwrap();
         let config = Config::load(f.path()).unwrap();
         assert_eq!(config.overlay.ext3_size_mb, 30000);
     }
@@ -194,10 +206,14 @@ size_mb = 30000
     #[test]
     fn test_overlay_type_directory_from_toml() {
         let mut f = NamedTempFile::new().unwrap();
-        writeln!(f, r#"
+        writeln!(
+            f,
+            r#"
 [overlay]
 type = "directory"
-"#).unwrap();
+"#
+        )
+        .unwrap();
         let config = Config::load(f.path()).unwrap();
         assert_eq!(config.overlay.overlay_type, OverlayType::Directory);
     }
@@ -211,10 +227,14 @@ type = "directory"
     #[test]
     fn test_mount_home_from_toml() {
         let mut f = NamedTempFile::new().unwrap();
-        writeln!(f, r#"
+        writeln!(
+            f,
+            r#"
 [enter]
 mount_home = true
-"#).unwrap();
+"#
+        )
+        .unwrap();
         let config = Config::load(f.path()).unwrap();
         assert!(config.enter.mount_home);
     }
@@ -222,7 +242,9 @@ mount_home = true
     #[test]
     fn test_roundtrip() {
         let mut f = NamedTempFile::new().unwrap();
-        writeln!(f, r#"
+        writeln!(
+            f,
+            r#"
 [sif]
 source = "/data/shared/base.sif"
 repo = "myorg/nix-apptainer"
@@ -233,7 +255,9 @@ size_mb = 20480
 [enter]
 gpu = "nvidia"
 bind = ["/scratch:/scratch", "/data:/data"]
-"#).unwrap();
+"#
+        )
+        .unwrap();
         let config = Config::load(f.path()).unwrap();
         assert_eq!(config.sif.source, "/data/shared/base.sif");
         assert_eq!(config.overlay.ext3_size_mb, 20480);

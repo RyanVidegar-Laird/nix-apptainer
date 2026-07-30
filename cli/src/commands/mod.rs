@@ -6,9 +6,9 @@ pub mod status;
 pub mod update;
 pub mod verify;
 
-use anyhow::bail;
 use crate::config::{Config, OverlayType};
 use crate::paths::AppPaths;
+use anyhow::bail;
 
 /// Resolve the overlay path based on the configured overlay type.
 pub fn resolve_overlay(config: &Config, paths: &AppPaths) -> anyhow::Result<String> {

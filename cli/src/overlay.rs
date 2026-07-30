@@ -1,4 +1,4 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
@@ -12,8 +12,7 @@ pub fn create_overlay(sys: &dyn System, path: &Path, size_mb: u64) -> anyhow::Re
         bail!("Overlay size must be at least 64 MB");
     }
 
-    let apptainer = checks::apptainer_binary(sys)
-        .context("apptainer/singularity not found")?;
+    let apptainer = checks::apptainer_binary(sys).context("apptainer/singularity not found")?;
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -21,13 +20,20 @@ pub fn create_overlay(sys: &dyn System, path: &Path, size_mb: u64) -> anyhow::Re
 
     let path_str = path.to_string_lossy();
     let size_str = size_mb.to_string();
-    let status = sys.run_command(
-        &apptainer,
-        &["overlay", "create", "--sparse", "--size", &size_str, &path_str],
-    ).with_context(|| format!("Failed to run {apptainer} overlay create"))?;
+    let status = sys
+        .run_command(
+            &apptainer,
+            &[
+                "overlay", "create", "--sparse", "--size", &size_str, &path_str,
+            ],
+        )
+        .with_context(|| format!("Failed to run {apptainer} overlay create"))?;
 
     if !status.success() {
-        bail!("{apptainer} overlay create failed (exit code: {:?})", status.code());
+        bail!(
+            "{apptainer} overlay create failed (exit code: {:?})",
+            status.code()
+        );
     }
 
     Ok(())
@@ -70,8 +76,9 @@ pub fn create_directory_overlay(path: &Path) -> anyhow::Result<()> {
         let mut cumulative = upper.clone();
         for component in Path::new(dir).components() {
             cumulative = cumulative.join(component);
-            std::fs::set_permissions(&cumulative, world_writable.clone())
-                .with_context(|| format!("Failed to set permissions on: {}", cumulative.display()))?;
+            std::fs::set_permissions(&cumulative, world_writable.clone()).with_context(|| {
+                format!("Failed to set permissions on: {}", cumulative.display())
+            })?;
         }
     }
 
@@ -84,7 +91,12 @@ pub fn create_directory_overlay(path: &Path) -> anyhow::Result<()> {
 ///
 /// This is idempotent — nix-store --load-db is additive and safe to re-run.
 /// If it fails, the overlay is still usable (just slower); a warning is printed.
-pub fn preseed_nix_db(sys: &dyn System, apptainer: &str, overlay: &str, sif: &str) -> anyhow::Result<()> {
+pub fn preseed_nix_db(
+    sys: &dyn System,
+    apptainer: &str,
+    overlay: &str,
+    sif: &str,
+) -> anyhow::Result<()> {
     let status = sys.run_command(
         apptainer,
         &["exec", "--overlay", overlay, sif, "sh", "-c",
@@ -92,7 +104,10 @@ pub fn preseed_nix_db(sys: &dyn System, apptainer: &str, overlay: &str, sif: &st
     ).with_context(|| "Failed to run apptainer exec for DB pre-seeding")?;
 
     if !status.success() {
-        eprintln!("Warning: Nix DB pre-seeding failed (exit code: {:?}). The container will still work but may be slower on first use.", status.code());
+        eprintln!(
+            "Warning: Nix DB pre-seeding failed (exit code: {:?}). The container will still work but may be slower on first use.",
+            status.code()
+        );
     }
 
     Ok(())
@@ -158,8 +173,12 @@ mod tests {
                 .unwrap()
                 .permissions()
                 .mode();
-            assert_eq!(mode & 0o777, 0o777, "{dir} should be mode 777, got {:o}", mode & 0o777);
+            assert_eq!(
+                mode & 0o777,
+                0o777,
+                "{dir} should be mode 777, got {:o}",
+                mode & 0o777
+            );
         }
     }
 }
-

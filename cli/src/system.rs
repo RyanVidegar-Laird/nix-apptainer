@@ -6,7 +6,8 @@ use std::process::Command;
 /// Production code uses `RealSystem`. Tests inject a mock.
 pub trait System {
     /// Run an external command, return its exit status.
-    fn run_command(&self, program: &str, args: &[&str]) -> anyhow::Result<std::process::ExitStatus>;
+    fn run_command(&self, program: &str, args: &[&str])
+    -> anyhow::Result<std::process::ExitStatus>;
     /// Check if a command exists on PATH. Returns the command name if found.
     fn find_command(&self, name: &str) -> Option<String>;
     /// Run a command with a version flag and return stdout if successful.
@@ -22,7 +23,11 @@ pub trait System {
 pub struct RealSystem;
 
 impl System for RealSystem {
-    fn run_command(&self, program: &str, args: &[&str]) -> anyhow::Result<std::process::ExitStatus> {
+    fn run_command(
+        &self,
+        program: &str,
+        args: &[&str],
+    ) -> anyhow::Result<std::process::ExitStatus> {
         Command::new(program)
             .args(args)
             .status()

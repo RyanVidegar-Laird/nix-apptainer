@@ -95,9 +95,7 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
         ));
     }
     if paths.sif_path.exists() {
-        let size = fs::metadata(&paths.sif_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let size = fs::metadata(&paths.sif_path).map(|m| m.len()).unwrap_or(0);
         items.push((
             format!("Base SIF (~{})", crate::util::human_size(size)),
             &paths.sif_path,

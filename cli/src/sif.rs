@@ -1,4 +1,4 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use indicatif::{ProgressBar, ProgressStyle};
 use sha2::Digest;
 use std::fs;
@@ -67,20 +67,14 @@ pub fn parse_release_response(resp: &serde_json::Value) -> anyhow::Result<Releas
         .context("No tag_name in release")?
         .to_string();
 
-    let assets = resp["assets"]
-        .as_array()
-        .context("No assets in release")?;
+    let assets = resp["assets"].as_array().context("No assets in release")?;
 
     let arch = current_arch();
     let expected_sif_name = format!("base-nixos-{arch}.sif");
 
     let sif_asset = assets
         .iter()
-        .find(|a| {
-            a["name"]
-                .as_str()
-                .is_some_and(|n| n == expected_sif_name)
-        })
+        .find(|a| a["name"].as_str().is_some_and(|n| n == expected_sif_name))
         .with_context(|| format!("No SIF asset for {arch} in latest release"))?;
 
     let sif_asset_name = sif_asset["name"]
@@ -96,11 +90,7 @@ pub fn parse_release_response(resp: &serde_json::Value) -> anyhow::Result<Releas
     let expected_sha_name = format!("SHA256SUMS-{arch}");
     let sha256_url = assets
         .iter()
-        .find(|a| {
-            a["name"]
-                .as_str()
-                .is_some_and(|n| n == expected_sha_name)
-        })
+        .find(|a| a["name"].as_str().is_some_and(|n| n == expected_sha_name))
         .and_then(|a| a["browser_download_url"].as_str().map(|s| s.to_string()));
 
     Ok(ReleaseInfo {
@@ -157,8 +147,8 @@ pub fn download_file(url: &str, dest: &Path) -> anyhow::Result<Sha256Digest> {
             .progress_chars("##-"),
     );
 
-    let mut file = fs::File::create(dest)
-        .with_context(|| format!("Failed to create: {}", dest.display()))?;
+    let mut file =
+        fs::File::create(dest).with_context(|| format!("Failed to create: {}", dest.display()))?;
     let mut hasher = sha2::Sha256::new();
     let mut buf = [0u8; 8192];
     loop {
@@ -216,11 +206,13 @@ pub fn copy_local_sif(src: &str, dest: &Path) -> anyhow::Result<Sha256Digest> {
 /// Verify a SHA256 digest against a SHA256SUMS file.
 /// The file contains lines of "hash  filename". If `sif_filename` is provided,
 /// only the line matching that filename is used. Otherwise the first line is used.
-pub fn verify_sha256(actual: &Sha256Digest, expected_content: &str, sif_filename: Option<&str>) -> bool {
+pub fn verify_sha256(
+    actual: &Sha256Digest,
+    expected_content: &str,
+    sif_filename: Option<&str>,
+) -> bool {
     let line = if let Some(filename) = sif_filename {
-        expected_content
-            .lines()
-            .find(|l| l.contains(filename))
+        expected_content.lines().find(|l| l.contains(filename))
     } else {
         expected_content.lines().next()
     };
@@ -316,11 +308,7 @@ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  nix-apptainer-
             Some("base-nixos-aarch64-linux.sif"),
         ));
         // Missing filename returns false
-        assert!(!verify_sha256(
-            &digest,
-            sums,
-            Some("nonexistent.sif"),
-        ));
+        assert!(!verify_sha256(&digest, sums, Some("nonexistent.sif"),));
     }
 
     #[test]
