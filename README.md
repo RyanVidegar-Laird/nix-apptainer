@@ -1,6 +1,6 @@
 # nix-apptainer
 
-[![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2FRyanVidegar-Laird%2Fnix-apptainer)](https://garnix.io/repo/RyanVidegar-Laird/nix-apptainer)
+[![CI](https://github.com/RyanVidegar-Laird/nix-apptainer/actions/workflows/check.yml/badge.svg)](https://github.com/RyanVidegar-Laird/nix-apptainer/actions/workflows/check.yml)
 
 Apptainer container image with a minimal NixOS system and single-user Nix for HPC environments. This acts as a shim / portable shell where a persistent, writable `/nix/store` is available and `nix` commands (including flakes) work out of the box.
 
@@ -41,15 +41,18 @@ nix-apptainer update             # check for and fetch a new base image
 nix-apptainer update --check     # just check, don't download
 nix-apptainer clean              # interactive cleanup
 nix-apptainer clean --all        # remove everything
+nix-apptainer verify             # verify the installed SIF's signature
 ```
 
 ### Options
 
 ```bash
 nix-apptainer enter --nv                 # NVIDIA GPU passthrough
+nix-apptainer enter --rocm               # AMD ROCm GPU passthrough
 nix-apptainer enter -B /scratch:/scratch # bind mounts
 nix-apptainer enter --quiet              # suppress apptainer warnings
 nix-apptainer exec -- nix develop        # run a single command
+nix-apptainer exec --passthrough <ARGS> -- <CMD>  # extra args for apptainer
 ```
 
 ## How it works
@@ -135,6 +138,10 @@ nix build .#cli          # build the static CLI binary
 nix flake check          # run all checks (eval, shellcheck, sandbox, sif, cli tests)
 ```
 
+CI runs on GitHub Actions across x86_64 and aarch64: `nix flake check` on both, plus the
+VM lifecycle test (`nix build .#vm-test`) on the x86_64 KVM runner. Build artifacts are
+cached at [https://nix-apptainer.cachix.org](https://nix-apptainer.cachix.org).
+
 ### Build from source
 
 ```bash
@@ -164,10 +171,10 @@ ARCH=$(uname -m)
 REPO=https://github.com/RyanVidegar-Laird/nix-apptainer/releases/latest/download
 
 curl -sL "$REPO/signing-key.asc" | gpg --import
-curl -LO "$REPO/SHA256SUMS" && curl -LO "$REPO/SHA256SUMS.sig"
+curl -LO "$REPO/SHA256SUMS-${ARCH}-linux" && curl -LO "$REPO/SHA256SUMS-${ARCH}-linux.sig"
 
-gpg --verify SHA256SUMS.sig SHA256SUMS
-sha256sum --ignore-missing -c SHA256SUMS
+gpg --verify "SHA256SUMS-${ARCH}-linux.sig" "SHA256SUMS-${ARCH}-linux"
+sha256sum --ignore-missing -c "SHA256SUMS-${ARCH}-linux"
 apptainer verify "base-nixos-${ARCH}-linux.sif"
 ```
 
