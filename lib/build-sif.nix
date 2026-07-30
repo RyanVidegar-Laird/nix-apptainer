@@ -22,9 +22,12 @@ let
   # Map Nix system arch to SIF partarch values
   # 2 = amd64, 4 = arm64
   sifPartArch =
-    if stdenv.hostPlatform.isx86_64 then 2
-    else if stdenv.hostPlatform.isAarch64 then 4
-    else throw "Unsupported architecture for SIF: ${stdenv.hostPlatform.system}";
+    if stdenv.hostPlatform.isx86_64 then
+      2
+    else if stdenv.hostPlatform.isAarch64 then
+      4
+    else
+      throw "Unsupported architecture for SIF: ${stdenv.hostPlatform.system}";
 
   # Build the squashfs from the sandbox rootfs.
   # Start with a staging directory and copy sandbox contents into it

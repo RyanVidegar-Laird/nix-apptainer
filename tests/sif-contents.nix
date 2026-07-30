@@ -2,7 +2,12 @@
 #
 # Tier 2: Builds the SIF image, extracts squashfs, verifies layout.
 # Catches mksquashfs staging bugs (paths nested under build dirs).
-{ runCommand, squashfsTools, apptainer, sifImage }:
+{
+  runCommand,
+  squashfsTools,
+  apptainer,
+  sifImage,
+}:
 
 runCommand "nix-apptainer-test-sif"
   {

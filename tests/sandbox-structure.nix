@@ -1,7 +1,11 @@
 # tests/sandbox-structure.nix
 #
 # Tier 1c: Builds the sandbox and asserts expected paths, symlinks, and permissions.
-{ runCommand, jq, sandbox }:
+{
+  runCommand,
+  jq,
+  sandbox,
+}:
 
 runCommand "nix-apptainer-test-sandbox"
   {

@@ -17,7 +17,10 @@
   outputs =
     inputs@{ flake-parts, nixpkgs, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
-      systems = [ "x86_64-linux" "aarch64-linux" ];
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
 
       perSystem =
         { pkgs, system, ... }:
@@ -26,12 +29,17 @@
 
           nixos = nixpkgs.lib.nixosSystem {
             inherit system;
-            specialArgs = { nixpkgs-input = nixpkgs; };
+            specialArgs = {
+              nixpkgs-input = nixpkgs;
+            };
             modules = [ ./nixos/configuration.nix ];
           };
 
           buildSandbox = pkgs.callPackage ./lib/build-sandbox.nix { };
-          sandbox = buildSandbox { nixosConfig = nixos; inherit version; };
+          sandbox = buildSandbox {
+            nixosConfig = nixos;
+            inherit version;
+          };
 
           buildSif = pkgs.callPackage ./lib/build-sif.nix { };
           sifImage = buildSif { inherit sandbox; };
@@ -83,7 +91,7 @@
               apptainer
               squashfsTools
               fuse-overlayfs
-              nixfmt-rfc-style
+              nixfmt
               cargo
               rustc
               clippy
@@ -94,7 +102,7 @@
             ];
           };
 
-          formatter = pkgs.nixfmt-rfc-style;
+          formatter = pkgs.nixfmt;
         };
     };
 }

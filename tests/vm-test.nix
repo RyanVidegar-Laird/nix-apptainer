@@ -4,7 +4,11 @@
 # Boots a NixOS VM, installs the CLI, runs init/enter/exec/status/clean
 # as an unprivileged user, and covers adversarial HPC-realistic subtests.
 # Requires KVM — run with `nix build .#vm-test`.
-{ pkgs, sifImage, cli }:
+{
+  pkgs,
+  sifImage,
+  cli,
+}:
 
 pkgs.testers.runNixOSTest {
   name = "nix-apptainer-cli-lifecycle";
@@ -17,7 +21,10 @@ pkgs.testers.runNixOSTest {
       programs.singularity.package = pkgs.apptainer;
 
       # fuse-overlayfs for directory and ext3 overlay stacking + the CLI itself
-      environment.systemPackages = [ pkgs.fuse-overlayfs cli ];
+      environment.systemPackages = [
+        pkgs.fuse-overlayfs
+        cli
+      ];
 
       # VM capacity
       virtualisation.memorySize = 2048;

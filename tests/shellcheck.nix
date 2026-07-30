@@ -1,7 +1,11 @@
 # tests/shellcheck.nix
 #
 # Tier 1b: Runs shellcheck on all shell scripts.
-{ runCommand, shellcheck, scripts }:
+{
+  runCommand,
+  shellcheck,
+  scripts,
+}:
 
 runCommand "nix-apptainer-test-shellcheck"
   {
