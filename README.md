@@ -4,7 +4,21 @@
 
 Apptainer container image with a minimal NixOS system and single-user Nix for HPC environments. This acts as a shim / portable shell where a persistent, writable `/nix/store` is available and `nix` commands (including flakes) work out of the box.
 
-## Quick start
+## Why
+
+I got sick of how messy dependency management can get for bioinformatics projects. Even a relatively simple one might involve various command line tools (`samtools`, `salmon`, `picard`, ...), an `R` environment (`tidyverse`, `ggplot2`, `limma`, `DESeq2`, ...), a python environment (`pandas`, `pytorch`, `scikit-learn`, ...), and some random old scripts a colleague recommended, all glued together with bash scripts or a workflow tool like `snakemake` or `nextflow`.
+
+The chances that all required dependencies are available via, say, Conda/Mamba/Pixi are quite low. Chances that it'll be possible to resolve all conflicting versions within a single environment are even lower. One could instead [split out different environments](https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#integrated-package-management) per analytical step (a Conda env here, Docker there, pip elsewhere, ...), yet that's a whole new abstracted dependency graph to manage.
+
+Even after all of that, solutions like Conda still end up breaking after system upgrades or *ad hoc* installs due to dynamic linking. Good luck getting a Conda env to work again in two years.
+
+Docker/Apptainer doesn't help much on it's own. Most Docker images in the field are *repeatable*, i.e. if you have the already-built image you can re-run it, which is a great start. However, the build process itself is rarely *reproducible* (all those arbitrary `apt-get update`s). An image built today will be different than the same image built in six months, unless one is very careful. Interactively working within one or more immutable Docker containers isn't a good development experience anyways.
+
+Nix/Nixpkgs makes it easy to be very careful. Coupled with Apptainer's writable overlays, one can have a highly-reproducible environment on HPCs using a single configuration file, while still having an interactive development cycle.
+
+I've been using this setup for 3+ years on an HPC with no issues. My project environments have survived many system upgrades, even a full upgrade from RHEL to Rocky Linux, and I didn't even notice. Up to producing this repo, I did so with my own messy bash scripts. This repo is simply a fancy, Rust-based 🚀, vibe-coded, convenience wrapper to make getting started easier.
+
+## Quick Start
 
 Download the CLI binary for your architecture from [GitHub Releases](https://github.com/RyanVidegar-Laird/nix-apptainer/releases):
 
@@ -41,7 +55,6 @@ nix-apptainer update             # check for and fetch a new base image
 nix-apptainer update --check     # just check, don't download
 nix-apptainer clean              # interactive cleanup
 nix-apptainer clean --all        # remove everything
-nix-apptainer verify             # verify the installed SIF's signature
 ```
 
 ### Options
@@ -54,8 +67,9 @@ nix-apptainer enter --quiet              # suppress apptainer warnings
 nix-apptainer exec -- nix develop        # run a single command
 nix-apptainer exec --passthrough <ARGS> -- <CMD>  # extra args for apptainer
 ```
+> The `--nv`, `--rocm`, and `-B` for simply exist as shorthand for using `--passthrough <ARGS> -- <CMD>`, as they're commonly used.
 
-## How it works
+## How It Works
 
 The base image is a read-only squashfs containing a minimal NixOS system. A writable overlay stores all user modifications (installed packages, profiles, home directory). Apptainer merges them at runtime via overlayfs.
 
@@ -93,7 +107,7 @@ Set `NIX_APPTAINER_HOME` to consolidate everything in a single directory (useful
 export NIX_APPTAINER_HOME=/scratch/$USER/nix-apptainer
 ```
 
-### config.toml reference
+### config.toml Reference
 
 ```toml
 [sif]
@@ -111,17 +125,6 @@ quiet = false                        # suppress apptainer stderr warnings
 mount_home = false                   # true to bind-mount host $HOME (default: false)
 ```
 
-## Distributing to teammates
-
-```bash
-# Copy the static CLI binary and SIF to a shared location
-cp nix-apptainer /shared/containers/
-cp base-nixos.sif /shared/containers/
-
-# Teammates then:
-/shared/containers/nix-apptainer init --sif /shared/containers/base-nixos.sif
-/shared/containers/nix-apptainer enter
-```
 
 ## Examples
 
@@ -138,11 +141,9 @@ nix build .#cli          # build the static CLI binary
 nix flake check          # run all checks (eval, shellcheck, sandbox, sif, cli tests)
 ```
 
-CI runs on GitHub Actions across x86_64 and aarch64: `nix flake check` on both, plus the
-VM lifecycle test (`nix build .#vm-test`) on the x86_64 KVM runner. Build artifacts are
-cached at [https://nix-apptainer.cachix.org](https://nix-apptainer.cachix.org).
+CI runs on GitHub Actions across x86_64 and aarch64: `nix flake check` on both, plus the VM lifecycle test (`nix build .#vm-test`) on the x86_64 KVM runner. Build artifacts are cached at [https://nix-apptainer.cachix.org](https://nix-apptainer.cachix.org).
 
-### Build from source
+### Build from Source
 
 ```bash
 git clone https://github.com/RyanVidegar-Laird/nix-apptainer.git
@@ -151,7 +152,7 @@ nix build .#cli -o cli-result    # static CLI binary
 nix build -o sif-result          # base SIF image
 ```
 
-### Manual setup (shell scripts)
+### Manual Setup (Shell Scripts)
 
 For advanced users or environments where the CLI is not available, the shell scripts in `scripts/` provide the same functionality:
 
@@ -184,9 +185,9 @@ apptainer verify "base-nixos-${ARCH}-linux.sif"
 - Apptainer >= 1.1 (for running)
 - FUSE support on the host (`/dev/fuse` or `fusermount`)
 
-## Known issues
+## Known Issues
 
-### Nix DB "not writable" on re-entry
+### Nix DB "Not Writable" on Entry
 
 On some systems, the second and subsequent container entries may fail with:
 
