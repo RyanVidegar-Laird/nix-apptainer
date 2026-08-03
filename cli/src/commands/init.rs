@@ -110,8 +110,40 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
         AppPaths::resolve()?
     };
 
+    // --- Overlay type (needed before checks: they're mode-aware) ---
+    let overlay_type = if let Some(ref t) = flags.overlay_type {
+        match t.as_str() {
+            "dir" | "directory" => OverlayType::Directory,
+            "ext3" => OverlayType::Ext3,
+            "sandbox" => OverlayType::Sandbox,
+            _ => anyhow::bail!(
+                "Invalid overlay type '{}'. Use 'dir', 'ext3', or 'sandbox'.",
+                t
+            ),
+        }
+    } else if flags.yes {
+        OverlayType::Directory
+    } else {
+        let choices = vec![
+            "Directory overlay (recommended \u{2014} best performance)",
+            "ext3 image (sparse, fixed capacity; single file \u{2014} gentler on parallel filesystems)",
+            "Sandbox directory (no overlay/FUSE \u{2014} for old apptainer; enables the Nix build sandbox)",
+        ];
+        let selection = Select::new()
+            .with_prompt("Storage type")
+            .items(&choices)
+            .default(0)
+            .interact()?;
+        match selection {
+            0 => OverlayType::Directory,
+            1 => OverlayType::Ext3,
+            2 => OverlayType::Sandbox,
+            _ => unreachable!(),
+        }
+    };
+
     // --- System checks ---
-    let report = checks::run_all_checks(&sys, &paths.data_dir, &OverlayType::Directory);
+    let report = checks::run_all_checks(&sys, &paths.data_dir, &overlay_type);
     for r in &report.results {
         let icon = if r.passed {
             "\u{2713}"
@@ -162,7 +194,12 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     };
 
     // Show disk space at chosen location
-    let disk_check = checks::check_disk_space(&sys, &paths.data_dir, 2.0);
+    let min_gb = if overlay_type == OverlayType::Sandbox {
+        10.0
+    } else {
+        2.0
+    };
+    let disk_check = checks::check_disk_space(&sys, &paths.data_dir, min_gb);
     println!("  Disk space: {}", disk_check.message);
     println!();
 
@@ -207,32 +244,6 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     // --- Fetch SIF ---
     let (version, hash) = fetch_sif(&sif_source, &paths)?;
 
-    // --- Overlay type ---
-    let overlay_type = if let Some(ref t) = flags.overlay_type {
-        match t.as_str() {
-            "dir" | "directory" => OverlayType::Directory,
-            "ext3" => OverlayType::Ext3,
-            _ => anyhow::bail!("Invalid overlay type '{}'. Use 'dir' or 'ext3'.", t),
-        }
-    } else if flags.yes {
-        OverlayType::Directory
-    } else {
-        let choices = vec![
-            "Directory overlay (recommended \u{2014} best performance)",
-            "ext3 image (sparse, fixed capacity)",
-        ];
-        let selection = Select::new()
-            .with_prompt("Overlay type")
-            .items(&choices)
-            .default(0)
-            .interact()?;
-        match selection {
-            0 => OverlayType::Directory,
-            1 => OverlayType::Ext3,
-            _ => unreachable!(),
-        }
-    };
-
     // --- Overlay ---
     let ext3_size_mb = match overlay_type {
         OverlayType::Ext3 => {
@@ -250,6 +261,8 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
         }
         OverlayType::Directory | OverlayType::Sandbox => flags.overlay_size.unwrap_or(51200),
     };
+
+    let apptainer = checks::apptainer_binary(&sys).context("apptainer/singularity not found")?;
 
     match overlay_type {
         OverlayType::Directory => {
@@ -299,23 +312,70 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
                 overlay::create_overlay(&sys, &paths.overlay_path, ext3_size_mb)?;
             }
         }
-        OverlayType::Sandbox => anyhow::bail!("Sandbox mode is not implemented yet."),
+        OverlayType::Sandbox => {
+            if paths.sandbox_dir.exists() {
+                let should_recreate = if flags.yes {
+                    true
+                } else {
+                    Confirm::new()
+                        .with_prompt(
+                            "Sandbox directory already exists. Recreate? (destroys all local changes)",
+                        )
+                        .default(false)
+                        .interact()?
+                };
+                if !should_recreate {
+                    println!("Keeping existing sandbox.");
+                } else {
+                    println!(
+                        "Unpacking SIF into sandbox directory (this can take several minutes)..."
+                    );
+                    crate::sandbox::create_sandbox(
+                        &sys,
+                        &apptainer,
+                        &paths.sif_path,
+                        &paths.sandbox_dir,
+                    )?;
+                }
+            } else {
+                println!("Unpacking SIF into sandbox directory (this can take several minutes)...");
+                crate::sandbox::create_sandbox(
+                    &sys,
+                    &apptainer,
+                    &paths.sif_path,
+                    &paths.sandbox_dir,
+                )?;
+            }
+        }
     }
 
-    // --- Pre-seed Nix DB ---
-    let apptainer = checks::apptainer_binary(&sys).context("apptainer/singularity not found")?;
-    let overlay_str = match overlay_type {
-        OverlayType::Directory => paths.overlay_dir.to_string_lossy().to_string(),
-        OverlayType::Ext3 => paths.overlay_path.to_string_lossy().to_string(),
-        OverlayType::Sandbox => unreachable!("bailed above"),
-    };
-    println!("Pre-seeding Nix store database...");
-    overlay::preseed_nix_db(
-        &sys,
-        &apptainer,
-        &overlay_str,
-        &paths.sif_path.to_string_lossy(),
-    )?;
+    // --- Pre-seed Nix DB (overlay modes only) ---
+    match overlay_type {
+        OverlayType::Directory | OverlayType::Ext3 => {
+            let overlay_str = match overlay_type {
+                OverlayType::Directory => paths.overlay_dir.to_string_lossy().to_string(),
+                OverlayType::Ext3 => paths.overlay_path.to_string_lossy().to_string(),
+                OverlayType::Sandbox => unreachable!(),
+            };
+            println!("Pre-seeding Nix store database...");
+            overlay::preseed_nix_db(
+                &sys,
+                &apptainer,
+                &overlay_str,
+                &paths.sif_path.to_string_lossy(),
+            )?;
+        }
+        OverlayType::Sandbox => {
+            // DB is baked into the image and now on a plain filesystem — no
+            // pre-seed needed. Probe whether the Nix build sandbox works here.
+            println!("Probing Nix build sandbox support...");
+            if crate::sandbox::probe_and_enable_nix_sandbox(&sys, &apptainer, &paths.sandbox_dir)? {
+                println!("  Works \u{2014} enabled (sandbox = true) for this installation.");
+            } else {
+                println!("  Unavailable \u{2014} builds will run unsandboxed (sandbox = false).");
+            }
+        }
+    }
 
     // --- Save config and state ---
     save_init_state(
