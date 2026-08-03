@@ -42,6 +42,7 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
                 ("Directory overlay", paths.overlay_dir.exists())
             }
             crate::config::OverlayType::Ext3 => ("Overlay image", paths.overlay_path.exists()),
+            crate::config::OverlayType::Sandbox => ("Sandbox directory", false),
         };
         if exists {
             let proceed = Confirm::new()
@@ -58,6 +59,7 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
                     crate::config::OverlayType::Ext3 => {
                         remove_with_label(label, &paths.overlay_path)?;
                     }
+                    crate::config::OverlayType::Sandbox => {}
                 }
             } else {
                 println!("Aborted.");

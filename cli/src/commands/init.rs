@@ -248,7 +248,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
                 size_str.parse::<u64>().context("Invalid overlay size")?
             }
         }
-        OverlayType::Directory => flags.overlay_size.unwrap_or(51200),
+        OverlayType::Directory | OverlayType::Sandbox => flags.overlay_size.unwrap_or(51200),
     };
 
     match overlay_type {
@@ -299,6 +299,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
                 overlay::create_overlay(&sys, &paths.overlay_path, ext3_size_mb)?;
             }
         }
+        OverlayType::Sandbox => anyhow::bail!("Sandbox mode is not implemented yet."),
     }
 
     // --- Pre-seed Nix DB ---
@@ -306,6 +307,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     let overlay_str = match overlay_type {
         OverlayType::Directory => paths.overlay_dir.to_string_lossy().to_string(),
         OverlayType::Ext3 => paths.overlay_path.to_string_lossy().to_string(),
+        OverlayType::Sandbox => unreachable!("bailed above"),
     };
     println!("Pre-seeding Nix store database...");
     overlay::preseed_nix_db(

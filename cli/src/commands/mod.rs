@@ -31,5 +31,8 @@ pub fn resolve_overlay(config: &Config, paths: &AppPaths) -> anyhow::Result<Stri
             }
             Ok(paths.overlay_path.to_string_lossy().to_string())
         }
+        // Sandbox mode has no overlay; this function is replaced by
+        // resolve_storage, which models all three modes.
+        OverlayType::Sandbox => bail!("Sandbox mode does not use an overlay."),
     }
 }

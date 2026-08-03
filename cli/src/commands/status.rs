@@ -54,6 +54,7 @@ pub fn run() -> anyhow::Result<()> {
                 "ext3 (not created)".to_string()
             }
         }
+        OverlayType::Sandbox => "sandbox directory".to_string(),
     };
 
     // Apptainer

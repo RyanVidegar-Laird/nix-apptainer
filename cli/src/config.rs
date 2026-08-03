@@ -45,6 +45,7 @@ pub enum OverlayType {
     #[default]
     Directory,
     Ext3,
+    Sandbox,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -237,6 +238,34 @@ mount_home = true
         .unwrap();
         let config = Config::load(f.path()).unwrap();
         assert!(config.enter.mount_home);
+    }
+
+    #[test]
+    fn test_overlay_type_sandbox_from_toml() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(
+            f,
+            r#"
+[overlay]
+type = "sandbox"
+"#
+        )
+        .unwrap();
+        let config = Config::load(f.path()).unwrap();
+        assert_eq!(config.overlay.overlay_type, OverlayType::Sandbox);
+    }
+
+    #[test]
+    fn test_overlay_type_sandbox_roundtrip() {
+        let config = Config {
+            overlay: OverlayConfig {
+                overlay_type: OverlayType::Sandbox,
+                ext3_size_mb: 51200,
+            },
+            ..Config::default()
+        };
+        let s = toml::to_string(&config).unwrap();
+        assert!(s.contains("type = \"sandbox\""), "serialized: {s}");
     }
 
     #[test]
