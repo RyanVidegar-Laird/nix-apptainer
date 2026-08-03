@@ -3,6 +3,26 @@
 A multi-environment flake demonstrating R, Python, and samtools dev shells
 for use inside nix-apptainer.
 
+## New to Nix?
+
+The 60-second version:
+
+- **Nix** is a package manager plus a small config language: you
+  describe an environment in a file, Nix builds exactly that — today,
+  and identically in two years.
+- **nixpkgs** is its package collection (100k+ packages, including
+  CRAN/Bioconductor R packages and Python libraries).
+- A **derivation** is Nix's build recipe: fixed inputs in, identical
+  result out. Every package is one.
+- A **flake** (like `flake.nix` here) is just a standard structure
+  around this: declare *inputs* (nixpkgs) and *outputs* (the dev
+  shells below), and any flake can be used the same way.
+
+Learn more: [nix.dev](https://nix.dev) (official tutorials) ·
+[Zero to Nix](https://zero-to-nix.com) (gentle intro) ·
+[package search](https://search.nixos.org) ·
+[Nix reference manual](https://nixos.org/manual/nix/stable/)
+
 ## Available environments
 
 | Shell | Command | Packages |
@@ -58,3 +78,13 @@ rEnv = pkgs.rWrapper.override {
 ```
 
 Then `nix develop .#r` or `direnv reload` to pick up the changes.
+
+## About the nixpkgs pin
+
+`flake.nix` pins `nixos-26.05` to match the container image's nixpkgs
+release. Check the container's release with
+`nix eval --raw nixpkgs#lib.trivial.release` and keep the pin in sync
+when you update the base image — mismatched versions cause confusing
+build failures.
+
+On ARM clusters, change `x86_64-linux` to `aarch64-linux` in `flake.nix`.

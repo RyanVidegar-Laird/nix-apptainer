@@ -1,106 +1,48 @@
 # Home-Manager in nix-apptainer
 
-Use [home-manager](https://github.com/nix-community/home-manager) to
-declaratively manage your shell, editor, and tools inside the container.
-Changes persist in the overlay across sessions.
+[home-manager](https://github.com/nix-community/home-manager) manages
+your shell, tools, and dotfiles from one config file. Inside
+nix-apptainer everything it installs persists in the overlay, so you
+activate once and it stays.
 
-## How it works
-
-nix-apptainer provides three layers of configuration:
+## Layers
 
 | Layer | Source | Managed by |
 |-------|--------|-----------|
-| System | NixOS config baked into the SIF image | `nixos/configuration.nix` in nix-apptainer |
-| User | home-manager config activated in the overlay | Your own flake (e.g. your nixos-configs) |
-| Project | Per-project flakes and devShells | `flake.nix` in your project directory |
+| System | NixOS config baked into the SIF image | nix-apptainer |
+| User | home-manager config activated in the overlay | you (this example) |
+| Project | Per-project flakes and dev shells | `flake.nix` in each project |
 
-Home-manager writes to `$HOME` (dotfiles, `~/.nix-profile`, etc.), which
-lives entirely in the overlay. Once activated, everything persists — no
-re-activation needed on subsequent container entries.
+## The config
 
-## Prerequisites
-
-A flake that exposes a `homeConfigurations.<name>` output targeted at
-container use. This means:
-
-- **Dynamic identity**: use `builtins.getEnv "USER"` and
-  `builtins.getEnv "HOME"` so it works with whatever username the HPC
-  cluster assigns you (requires `--impure` flag)
-- **Headless modules only**: exclude GUI-specific modules (terminal
-  emulators, desktop apps, etc.)
-
-### Example: flake-parts with dendritic pattern
-
-If your nixos-configs uses flake-parts, add a container "host" that
-selects only the modules you want:
+[`flake.nix`](flake.nix) in this directory is a complete working
+config: git, direnv, and fzf, with fish as the interactive shell and
+`gs`/`ga`/`gd` abbreviations for common git commands.
 
 ```nix
-# modules/hosts/container/default.nix
-{ inputs, config, ... }:
 {
-  flake.homeConfigurations.container =
-    let
-      pkgs = import inputs.nixpkgs {
-        system = "x86_64-linux";
-        overlays = [ config.flake.overlays.unstable ];
-        config.allowUnfree = true;
-      };
-    in
-    inputs.home-manager.lib.homeManagerConfiguration {
-      inherit pkgs;
-      modules =
-        (with config.flake.modules.homeManager; [
-          fish
-          git
-          direnv
-          helix
-          # ... your headless modules
-        ])
-        ++ [
-          {
-            home.stateVersion = "24.05";
-            home.username =
-              let u = builtins.getEnv "USER";
-              in if u == "" then "nobody" else u;
-            home.homeDirectory =
-              let h = builtins.getEnv "HOME";
-              in if h == "" then "/homeless-shelter" else h;
-          }
-        ];
-    };
-}
-```
+  description = "Home-manager config for use inside nix-apptainer";
 
-### Example: standalone home-manager flake
-
-If you don't have an existing nixos-configs repo, create a standalone flake.
-
-The container registers its build-time nixpkgs in the flake registry, so
-you can use `flake:nixpkgs` to reuse it — avoiding a ~300 MB download of a
-second nixpkgs:
-
-```nix
-# flake.nix
-{
   inputs = {
-    # Reuse the nixpkgs already baked into the container image.
-    # Resolves via the flake registry entry set by nix-apptainer.
-    nixpkgs.url = "flake:nixpkgs";
+    # Must match the container's nixpkgs release (check inside the
+    # container: nix eval --raw nixpkgs#lib.trivial.release).
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     home-manager = {
-      url = "github:nix-community/home-manager/release-25.11";
+      url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
   outputs = { nixpkgs, home-manager, ... }:
     let
+      # Change to "aarch64-linux" on ARM clusters.
       pkgs = import nixpkgs { system = "x86_64-linux"; };
     in {
       homeConfigurations.container =
         home-manager.lib.homeManagerConfiguration {
           inherit pkgs;
           modules = [{
-            home.stateVersion = "24.05";
+            home.stateVersion = "26.05";
             home.username =
               let u = builtins.getEnv "USER";
               in if u == "" then "nobody" else u;
@@ -111,6 +53,24 @@ second nixpkgs:
             programs.git.enable = true;
             programs.direnv.enable = true;
             programs.fzf.enable = true;
+
+            # fish as the interactive shell, with a few git shortcuts
+            programs.fish = {
+              enable = true;
+              shellAbbrs = {
+                gs = "git status";
+                ga = "git add";
+                gd = "git diff";
+              };
+            };
+            # The container always starts bash; hand off interactive
+            # sessions to fish (chsh isn't available here).
+            programs.bash = {
+              enable = true;
+              initExtra = ''
+                if [[ $- == *i* ]]; then exec fish; fi
+              '';
+            };
             # Add your preferred tools here
           }];
         };
@@ -118,73 +78,87 @@ second nixpkgs:
 }
 ```
 
-Push this to GitHub and reference it in the activation command below.
+Copy this directory somewhere you control (or push it to GitHub) and
+edit the module list to taste. On ARM clusters change `x86_64-linux`
+to `aarch64-linux`.
 
-> **Note:** `flake:nixpkgs` resolves to whatever nixpkgs the container was
-> built with (currently nixos-25.11). Make sure your home-manager release
-> matches (e.g. `release-25.11`). If you pin your own nixpkgs instead,
-> home-manager will download that full closure separately.
+## About these values
 
-## Activation
+- **nixpkgs pin** must match the container's nixpkgs release —
+  mismatched versions (e.g. home-manager 26.05 against nixpkgs
+  unstable) cause hard-to-diagnose build failures.
+- **home-manager branch** must match the same release.
+  Check from inside the container:
 
-The container's home directory is isolated from the host by default, so
-you need to bind-mount the directory containing your config flake:
+  ```bash
+  nix eval --raw nixpkgs#lib.trivial.release   # e.g. "26.05" → release-26.05
+  ```
+
+  Update this pin when you update the base image.
+- **`home.stateVersion`** is set once when you first create your config
+  (use the release current at that time) and then never changed — even
+  across image or home-manager upgrades. It records which defaults your
+  config started with; it is not a version to keep updated.
+- **`home.username` / `home.homeDirectory`** read `$USER` and `$HOME`
+  at activation, so one config works with whatever account each cluster
+  gives you. This is why activation needs `--impure`.
+- **fish handoff**: the container always starts bash; the small
+  `programs.bash` block replaces interactive bash sessions with fish.
+  Delete it if you prefer bash.
+
+## Activate
+
+The container's home directory is isolated from the host, so
+bind-mount the directory containing your config:
 
 ```bash
-# Enter the container with your config repo accessible
-nix-apptainer enter -B /path/to/your/configs:/path/to/your/configs
-
-# First time only — activate home-manager
-nix run home-manager -- switch --flake /path/to/your/configs#container --impure
+nix-apptainer enter -B /path/to/config:/path/to/config
+nix run github:nix-community/home-manager/release-26.05 -- switch --flake /path/to/config#container --impure
 ```
 
-Or if your config is on GitHub:
+Or straight from GitHub:
 
 ```bash
 nix-apptainer enter
-nix run home-manager -- switch --flake github:youruser/yourrepo#container --impure
+nix run github:nix-community/home-manager/release-26.05 -- switch --flake github:you/repo#container --impure
 ```
 
-`home-manager` is not in the base image, so `nix run home-manager --`
-fetches and runs it without a permanent install. After the first
-activation, home-manager installs itself into your profile and you can
-use `home-manager switch` directly.
+(The pinned `nix run` URL matters: a bare `nix run home-manager` fetches
+home-manager *master*, which won't match this config's release.)
 
-Restart your shell (or run your configured shell, e.g. `fish`) to pick
-up the new configuration.
+> **Note:** the current image requires disabling the Nix build sandbox
+> before anything can build — once, inside the container:
+> ```bash
+> mkdir -p ~/.config/nix
+> echo "sandbox = false" >> ~/.config/nix/nix.conf
+> ```
+> Details in [docs/troubleshooting.md](../../docs/troubleshooting.md).
 
-> **Tip:** Add frequently used bind mounts to your `config.toml` so you
-> don't need to pass `-B` every time:
+The first activation installs home-manager into your profile; after
+that, use `home-manager switch ...` directly. Re-enter the container to
+land in fish — try `gs`<kbd>space</kbd>, it expands to `git status`.
+
+> **Tip:** add frequently used bind mounts to `config.toml`:
 > ```toml
 > [enter]
-> bind = ["/home/you/configs:/home/you/configs", "/scratch:/scratch"]
+> bind = ["/home/you/configs:/home/you/configs"]
 > ```
 
-## Updating
+## Update
 
-After pushing changes to your config repo:
+After changing your config:
 
 ```bash
-nix-apptainer enter
-home-manager switch --flake github:youruser/yourrepo#container --impure --refresh
+home-manager switch --flake github:you/repo#container --impure --refresh
 ```
 
-The `--refresh` flag bypasses the flake cache to pick up the latest commit.
+`--refresh` bypasses the flake cache so the latest commit is used.
 
 ## Notes
 
-- **Network access required**: the first activation downloads packages.
-  On HPC clusters with restricted networking, consider using a
-  [binary cache](https://nixos.wiki/wiki/Binary_Cache) or activating
-  from a node with internet access.
-- **Overlay space**: a typical home-manager activation uses 1-3 GB of
-  overlay space depending on your module set. For ext3 overlays, the CLI
-  warns at 80% usage. Directory overlays have no fixed limit.
-- **No secrets**: avoid pulling SOPS/agenix secrets into the container.
-  Use `builtins.getEnv` for identity only.
-- **Isolated home**: the container's `$HOME` is separate from the host
-  by default, so home-manager inside the container won't interfere with
-  a host home-manager setup. Use `-B` or `bind` in `config.toml` to
-  share specific directories.
-- **Overlay is per-machine**: each machine gets its own overlay. Only
-  the SIF image is portable.
+- **Network required** for the first activation. On restricted
+  clusters, activate from a node with internet access.
+- **Overlay space**: a typical activation uses 1–3 GB.
+- **No secrets**: don't pull SOPS/agenix secrets into the container.
+- **Per-machine overlay**: only the SIF image is portable; each machine
+  gets its own overlay (and its own activation).

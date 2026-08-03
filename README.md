@@ -128,8 +128,8 @@ mount_home = false                   # true to bind-mount host $HOME (default: f
 
 ## Examples
 
-- [examples/bioinformatics/](examples/bioinformatics/) — Multi-environment flake with R, Python, and samtools dev shells with direnv auto-loading
-- [examples/home-manager/](examples/home-manager/) — Integrating home-manager with the container overlay
+- [examples/bioinformatics/](examples/bioinformatics/) — R, Python, and samtools dev shells with direnv auto-loading; includes a terse intro to Nix concepts with links to learn more
+- [examples/home-manager/](examples/home-manager/) — declarative shell and tools (fish, git, direnv, fzf) that persist in the overlay
 
 ## Development
 

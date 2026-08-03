@@ -53,15 +53,17 @@ cp result/nix-apptainer.sif /scratch/my-custom-image.sif
 
 ### 6. Use the custom image
 
-Exit the container, then use your custom image with the host apptainer:
+Exit the container, then point the CLI at your custom image. Use a
+separate data directory so it doesn't clash with your existing setup:
 
 ```bash
-# Create a new overlay for the custom image
-apptainer overlay create --sparse --size 51200 /scratch/my-overlay.img
-
-# Enter the custom image
-apptainer run --overlay /scratch/my-overlay.img /scratch/my-custom-image.sif
+export NIX_APPTAINER_HOME=/scratch/$USER/custom
+nix-apptainer init --sif /scratch/my-custom-image.sif
+nix-apptainer enter
 ```
+
+This copies the SIF into place and creates a fresh directory overlay
+(the default).
 
 ## Testing inside the container (nested Apptainer)
 
@@ -76,10 +78,11 @@ apptainer exec result/nix-apptainer.sif nix --version
 This requires no special configuration — Apptainer 1.1+ handles
 `--userns` nesting automatically.
 
-## Expanding an existing overlay
+## Expanding an existing overlay (ext3 only)
 
-If your overlay is running out of space, you can expand it without
-recreating it:
+Directory overlays (the default) have no fixed size — this section only
+applies if you chose `--overlay-type ext3`. If your ext3 overlay is
+running out of space, expand it without recreating it:
 
 ```bash
 # Exit the container first, then on the host:
