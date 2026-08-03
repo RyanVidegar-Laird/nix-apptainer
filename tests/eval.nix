@@ -13,12 +13,16 @@ let
       msg = "boot.isContainer must be true";
     }
     {
-      check = cfg.nix.settings.sandbox == true;
-      msg = "nix.settings.sandbox must be true";
+      check = cfg.nix.settings.sandbox == false;
+      msg = "nix.settings.sandbox must be false (overlay stores cannot support it)";
     }
     {
-      check = cfg.nix.settings.sandbox-fallback == true;
-      msg = "nix.settings.sandbox-fallback must be true";
+      check = cfg.nix.settings.build-dir == "/tmp";
+      msg = "nix.settings.build-dir must be /tmp (host bind mount, not the overlay)";
+    }
+    {
+      check = builtins.match ".*!include /etc/nix/nix.conf.local.*" cfg.nix.extraOptions != null;
+      msg = "nix.extraOptions must include the nix.conf.local hook";
     }
     {
       check = builtins.elem "nix-command" cfg.nix.settings.experimental-features;

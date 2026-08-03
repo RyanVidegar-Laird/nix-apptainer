@@ -29,15 +29,29 @@
   };
 
   nix.settings = {
-    sandbox = true;
-    sandbox-fallback = lib.mkForce true;
+    # The build sandbox cannot work on overlay-backed stores (kernel or
+    # FUSE — see docs/troubleshooting.md). sandbox-fallback does not help:
+    # the userns is created fine, failures come later from overlay
+    # semantics. Sandbox-directory installs re-enable it at init time via
+    # /etc/nix/nix.conf.local (probe-gated).
+    sandbox = lib.mkForce false;
     filter-syscalls = true;
+    # Build under host-bound /tmp instead of overlay-backed /nix/var/nix/builds.
+    # Single-user container: the multi-user /tmp build-dir advisory doesn't apply.
+    build-dir = "/tmp";
     experimental-features = [
       "nix-command"
       "flakes"
     ];
     max-jobs = "auto";
   };
+
+  # Optional per-installation overrides (written by the sandbox-mode probe).
+  # `!include` is ignored when the file doesn't exist. extraOptions renders
+  # after settings, so nix.conf.local wins.
+  nix.extraOptions = ''
+    !include /etc/nix/nix.conf.local
+  '';
 
   environment.systemPackages = with pkgs; [
     coreutils
