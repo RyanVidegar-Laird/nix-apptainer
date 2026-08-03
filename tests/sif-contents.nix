@@ -63,6 +63,13 @@ runCommand "nix-apptainer-test-sif"
     [ "$store_count" -gt 0 ] || fail "nix/store is empty in squashfs"
     pass "nix/store has entries ($store_count)"
 
+    # --- Hardlink dedup must survive into the squashfs ---
+    # Sandbox mode unpacks the whole image; identical store files must be
+    # hardlinks or the unpacked tree inflates (disk + inodes).
+    links=$(find extracted/nix/store -type f -links +1 | wc -l)
+    [ "$links" -gt 0 ] || fail "no hardlinked files in squashfs (dedup regression)"
+    pass "store contains hardlinked duplicates ($links files)"
+
     # --- Verify writable permissions on overlay-targeted dirs ---
     echo ""
     echo "Checking overlay-writable permissions..."

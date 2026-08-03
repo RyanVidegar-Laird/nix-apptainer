@@ -10,6 +10,7 @@
   lib,
   coreutils,
   stdenv,
+  util-linux,
 }:
 
 {
@@ -38,6 +39,7 @@ let
         nativeBuildInputs = [
           squashfsTools
           coreutils
+          util-linux
         ];
         __structuredAttrs = true;
         unsafeDiscardReferences.out = true;
@@ -67,8 +69,13 @@ let
         # /nix/var/nix/db, so make these dirs world-writable in the squashfs.
         chmod -R 777 rootfs/nix/var/nix
 
+        # Hardlink identical store files so a sandbox-mode unpack
+        # (unsquashfs) recreates them as links instead of full copies.
+        # util-linux hardlink only merges files with equal content, mode,
+        # owner, and mtime — safe for a store tree (mtimes are all epoch).
+        hardlink rootfs/nix/store
+
         mksquashfs rootfs $out \
-          -no-hardlinks \
           -all-root \
           -b 1048576 \
           -root-mode 0755 \
