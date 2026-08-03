@@ -7,6 +7,8 @@ pub struct AppPaths {
     pub sif_path: PathBuf,
     pub overlay_path: PathBuf,
     pub overlay_dir: PathBuf,
+    pub sandbox_dir: PathBuf,
+    pub sandbox_lock: PathBuf,
     pub state_file: PathBuf,
     pub cache_dir: PathBuf,
 }
@@ -34,6 +36,8 @@ impl AppPaths {
             sif_path: base.join("base.sif"),
             overlay_path: base.join("overlay.img"),
             overlay_dir: base.join("overlay"),
+            sandbox_dir: base.join("sandbox"),
+            sandbox_lock: base.join("sandbox.lock"),
             state_file: base.join("state.json"),
             cache_dir: base.join("cache"),
         }
@@ -51,6 +55,8 @@ impl AppPaths {
             sif_path: data_dir.join("base.sif"),
             overlay_path: data_dir.join("overlay.img"),
             overlay_dir: data_dir.join("overlay"),
+            sandbox_dir: data_dir.join("sandbox"),
+            sandbox_lock: data_dir.join("sandbox.lock"),
             state_file: data_dir.join("state.json"),
             cache_dir,
         })
@@ -101,6 +107,19 @@ mod tests {
         assert_eq!(
             paths.overlay_dir,
             PathBuf::from("/scratch/user/nix/overlay")
+        );
+    }
+
+    #[test]
+    fn test_sandbox_paths_from_base() {
+        let paths = AppPaths::from_base_dir(PathBuf::from("/tmp/nix-apptainer-test"));
+        assert_eq!(
+            paths.sandbox_dir,
+            PathBuf::from("/tmp/nix-apptainer-test/sandbox")
+        );
+        assert_eq!(
+            paths.sandbox_lock,
+            PathBuf::from("/tmp/nix-apptainer-test/sandbox.lock")
         );
     }
 
