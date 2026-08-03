@@ -1,9 +1,13 @@
+use anyhow::Context;
 use dialoguer::Confirm;
 
-use crate::config::Config;
+use crate::checks;
+use crate::config::{Config, OverlayType};
 use crate::paths::AppPaths;
+use crate::sandbox;
 use crate::sif;
 use crate::state::State;
+use crate::system::RealSystem;
 
 pub struct UpdateFlags {
     pub check: bool,
@@ -55,6 +59,24 @@ pub fn run(flags: UpdateFlags) -> anyhow::Result<()> {
         }
     }
 
+    let is_sandbox = config.overlay.overlay_type == OverlayType::Sandbox;
+    if is_sandbox {
+        println!();
+        println!("Sandbox mode: updating re-unpacks the base image into a fresh directory.");
+        println!("This DISCARDS all local changes — packages you built or installed inside");
+        println!("the container are lost unless pushed to a cache first.");
+        if !flags.yes {
+            let proceed = Confirm::new()
+                .with_prompt("Discard local changes and update?")
+                .default(false)
+                .interact()?;
+            if !proceed {
+                println!("Aborted.");
+                return Ok(());
+            }
+        }
+    }
+
     println!("Downloading {}...", release.tag);
     let hash = sif::download_file(&release.sif_url, &paths.sif_path)?;
     println!("  SHA256: {hash}");
@@ -71,6 +93,20 @@ pub fn run(flags: UpdateFlags) -> anyhow::Result<()> {
             println!("  SHA256 verified \u{2713}");
         } else {
             anyhow::bail!("SHA256 mismatch! Expected: {expected}, Got: {hash}");
+        }
+    }
+
+    if is_sandbox {
+        let sys = RealSystem;
+        let apptainer =
+            checks::apptainer_binary(&sys).context("apptainer/singularity not found")?;
+        println!("Re-unpacking sandbox directory (this can take several minutes)...");
+        sandbox::create_sandbox(&sys, &apptainer, &paths.sif_path, &paths.sandbox_dir)?;
+        println!("Probing Nix build sandbox support...");
+        if sandbox::probe_and_enable_nix_sandbox(&sys, &apptainer, &paths.sandbox_dir)? {
+            println!("  Works \u{2014} enabled (sandbox = true).");
+        } else {
+            println!("  Unavailable \u{2014} builds will run unsandboxed.");
         }
     }
 
