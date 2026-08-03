@@ -73,11 +73,6 @@ nix-apptainer exec --passthrough <ARGS> -- <CMD>  # extra args for apptainer
 
 The base image is a read-only squashfs containing a minimal NixOS system. A writable overlay stores all user modifications (installed packages, profiles, home directory). Apptainer merges them at runtime via overlayfs.
 
-Two overlay types are supported:
-
-- **Directory overlay** (default) — a plain directory tree. No size limit, best performance.
-- **ext3 overlay** — a sparse ext3 image file. Fixed capacity, useful when sparse disk allocation is preferred.
-
 ```
 base-nixos.sif (read-only)     overlay (writable)
 ├── /nix/store/ (base)         ├── /nix/store/ (new packages)
@@ -89,7 +84,26 @@ base-nixos.sif (read-only)     overlay (writable)
 
 By default, the host `$HOME` is **not** mounted into the container. The container gets its own home directory inside the overlay, preventing conflicts with host dotfiles and home-manager configurations. Use `--bind` to expose specific host directories (project dirs, scratch, data) as needed. Set `mount_home = true` in `config.toml` to mount the host home instead.
 
-The Nix build sandbox is enabled with fallback — on hosts that support user namespaces, builds are isolated; otherwise they run unsandboxed with a one-time warning.
+## Storage modes
+
+`nix-apptainer init --overlay-type <mode>` picks how writes are stored:
+
+| mode | what it is | pick it when |
+|---|---|---|
+| `dir` (default) | read-only SIF + directory overlay via fuse-overlayfs | modern apptainer (bundled fuse-overlayfs ≥ 1.14); best all-round |
+| `ext3` | read-only SIF + sparse ext3 image overlay | parallel filesystems (Lustre/GPFS) where one big file beats many small ones |
+| `sandbox` | SIF unpacked into a writable directory — no overlay, no FUSE | old apptainer (≤ 1.3.x, bundled fuse-overlayfs ≤ 1.13, where overlay builds fail with EPERM), or when you want the Nix build sandbox |
+
+The image ships with the Nix build sandbox **off** (`sandbox = false`), because
+overlay-backed stores cannot support it. Sandbox mode trade-offs: the unpacked
+tree is hundreds of thousands of files (put it on node-local or scratch storage,
+not your network home); `update` re-unpacks and discards local changes; sessions
+take an advisory lock (`--force` to bypass). In exchange, local builds work
+everywhere apptainer runs, and `init` re-enables `sandbox = true` automatically
+when a probe shows it works.
+
+`init` checks your host and tells you which modes will work — including
+detecting the buggy bundled fuse-overlayfs on old apptainer installs.
 
 ## Configuration
 
@@ -115,7 +129,7 @@ source = "github"                    # "github", a URL, or a local file path
 repo = "RyanVidegar-Laird/nix-apptainer"  # GitHub repo for updates
 
 [overlay]
-type = "directory"                   # "directory" (default) or "ext3"
+type = "directory"                   # "directory" (default), "ext3", or "sandbox"
 ext3_size_mb = 51200                 # sparse overlay size in MB (ext3 only)
 
 [enter]
