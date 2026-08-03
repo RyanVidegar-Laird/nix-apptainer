@@ -87,6 +87,14 @@ runCommand "nix-apptainer-sandbox"
     GROUP
     fi
 
+    # Bind-mount targets: in `--writable` sandbox mode apptainer cannot
+    # fabricate missing mount points, so every default bind destination
+    # must exist in the image. Guard against overwriting etc-derivation
+    # symlinks (e.g. /etc/hosts).
+    for f in etc/resolv.conf etc/hosts etc/localtime; do
+      [ -e "$sandbox/$f" ] || [ -L "$sandbox/$f" ] || touch "$sandbox/$f"
+    done
+
     ln -s ${bashInteractive}/bin/bash $sandbox/bin/sh
     ln -s ${bashInteractive}/bin/bash $sandbox/bin/bash
     ln -s ${coreutils}/bin/env $sandbox/usr/bin/env
@@ -116,7 +124,7 @@ runCommand "nix-apptainer-sandbox"
     # and copied above via the etc derivation — no need to duplicate
 
     # .singularity.d metadata for Apptainer
-    mkdir -p $sandbox/.singularity.d/env
+    mkdir -p $sandbox/.singularity.d/{env,libs}
 
     cp ${../scripts/entrypoint.sh} $sandbox/.singularity.d/runscript
     chmod +x $sandbox/.singularity.d/runscript

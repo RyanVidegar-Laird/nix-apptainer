@@ -121,6 +121,19 @@ runCommand "nix-apptainer-test-sandbox"
       pass "etc/hostname is a symlink to $target (content not verifiable in build sandbox)"
     fi
 
+    # --- Bind-mount targets for --writable sandbox mode ---
+    # Apptainer can't create missing mount points without an overlay.
+    for f in etc/resolv.conf etc/hosts etc/localtime; do
+      [ -e "$sb/$f" ] || [ -L "$sb/$f" ] || fail "bind target $f missing"
+      pass "bind target $f exists"
+    done
+
+    [ -d "$sb/.singularity.d/libs" ] || fail ".singularity.d/libs missing (--nv target)"
+    pass ".singularity.d/libs exists"
+
+    [ -d "$sb/var/tmp" ] || fail "var/tmp missing"
+    pass "var/tmp exists"
+
     # --- Nix store has contents ---
     # Avoid broken pipe from ls|head under set -e by using a simple test
     store_count=$(ls -1 "$sb/nix/store" | wc -l)
