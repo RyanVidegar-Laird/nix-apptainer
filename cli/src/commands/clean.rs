@@ -18,6 +18,8 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
         remove_with_label("Download cache", &paths.cache_dir)?;
         remove_with_label("Overlay (directory)", &paths.overlay_dir)?;
         remove_with_label("Overlay (ext3)", &paths.overlay_path)?;
+        remove_with_label("Sandbox directory", &paths.sandbox_dir)?;
+        remove_with_label("Sandbox lock", &paths.sandbox_lock)?;
         remove_with_label("Base SIF", &paths.sif_path)?;
         remove_with_label("State", &paths.state_file)?;
         remove_with_label("Config", &paths.config_file)?;
@@ -42,7 +44,9 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
                 ("Directory overlay", paths.overlay_dir.exists())
             }
             crate::config::OverlayType::Ext3 => ("Overlay image", paths.overlay_path.exists()),
-            crate::config::OverlayType::Sandbox => ("Sandbox directory", false),
+            crate::config::OverlayType::Sandbox => {
+                ("Sandbox directory", paths.sandbox_dir.exists())
+            }
         };
         if exists {
             let proceed = Confirm::new()
@@ -59,7 +63,10 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
                     crate::config::OverlayType::Ext3 => {
                         remove_with_label(label, &paths.overlay_path)?;
                     }
-                    crate::config::OverlayType::Sandbox => {}
+                    crate::config::OverlayType::Sandbox => {
+                        remove_with_label(label, &paths.sandbox_dir)?;
+                        remove_with_label("Sandbox lock", &paths.sandbox_lock)?;
+                    }
                 }
             } else {
                 println!("Aborted.");
@@ -96,6 +103,11 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
             &paths.overlay_path,
         ));
     }
+    // No size calc: a sandbox is ~10^5 files; walking it (especially on a
+    // network filesystem) would make `clean` crawl.
+    if paths.sandbox_dir.exists() {
+        items.push(("Sandbox directory".to_string(), &paths.sandbox_dir));
+    }
     if paths.sif_path.exists() {
         let size = fs::metadata(&paths.sif_path).map(|m| m.len()).unwrap_or(0);
         items.push((
@@ -124,7 +136,9 @@ pub fn run(flags: CleanFlags) -> anyhow::Result<()> {
     }
 
     // Warn if overlay is selected
-    let has_overlay = selections.iter().any(|&i| items[i].0.contains("Overlay"));
+    let has_overlay = selections
+        .iter()
+        .any(|&i| items[i].0.contains("Overlay") || items[i].0.contains("Sandbox"));
     if has_overlay {
         println!(
             "\n\u{26a0} Removing the overlay will destroy all packages installed inside the container."

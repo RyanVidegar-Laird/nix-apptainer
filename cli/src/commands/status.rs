@@ -54,7 +54,18 @@ pub fn run() -> anyhow::Result<()> {
                 "ext3 (not created)".to_string()
             }
         }
-        OverlayType::Sandbox => "sandbox directory".to_string(),
+        OverlayType::Sandbox => {
+            if paths.sandbox_dir.exists() {
+                let nix_sandbox = if paths.sandbox_dir.join("etc/nix/nix.conf.local").exists() {
+                    "on"
+                } else {
+                    "off"
+                };
+                format!("sandbox directory (nix build sandbox {nix_sandbox})")
+            } else {
+                "sandbox directory (not created)".to_string()
+            }
+        }
     };
 
     // Apptainer
