@@ -11,6 +11,7 @@ mod digest;
 mod lock;
 mod overlay;
 mod paths;
+mod sandbox;
 mod sif;
 mod state;
 mod system;
