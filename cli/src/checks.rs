@@ -456,7 +456,9 @@ mod tests {
             Some((1, 13))
         );
         assert_eq!(
-            parse_fuse_overlayfs_version("fuse-overlayfs: version 1.10\nFUSE library version 3.9.1"),
+            parse_fuse_overlayfs_version(
+                "fuse-overlayfs: version 1.10\nFUSE library version 3.9.1"
+            ),
             Some((1, 10))
         );
         assert_eq!(parse_fuse_overlayfs_version("garbage"), None);
@@ -497,7 +499,11 @@ mod tests {
         let result = check_fuse_overlayfs(&sys);
         assert!(!result.passed);
         assert!(result.required);
-        assert!(result.message.contains("sandbox"), "msg: {}", result.message);
+        assert!(
+            result.message.contains("sandbox"),
+            "msg: {}",
+            result.message
+        );
     }
 
     #[test]
