@@ -1,9 +1,9 @@
-use anyhow::{Context, bail};
+use anyhow::Context;
 use std::process::Command;
 
 use crate::checks;
 use crate::config::{Config, OverlayType};
-use crate::container::{ContainerMode, ContainerOpts, build_apptainer_args};
+use crate::container::{ContainerMode, ContainerOpts, ContainerTarget, build_apptainer_args};
 use crate::paths::AppPaths;
 use crate::system::RealSystem;
 
@@ -20,13 +20,7 @@ pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
     let paths = AppPaths::resolve()?;
     let config = Config::load(&paths.config_file)?;
 
-    if !paths.sif_path.exists() {
-        bail!(
-            "Base SIF not found at {}. Run `nix-apptainer init` first.",
-            paths.sif_path.display()
-        );
-    }
-    let overlay = super::resolve_overlay(&config, &paths)?;
+    let storage = super::resolve_storage(&config, &paths)?;
 
     // Warn if ext3 overlay is getting full
     #[cfg(unix)]
@@ -42,9 +36,15 @@ pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
     }
 
     let apptainer = checks::apptainer_binary(&sys).context("apptainer/singularity not found")?;
+    let target = match &storage {
+        super::Storage::Overlay(overlay) => ContainerTarget::Overlay {
+            sif: &paths.sif_path,
+            overlay,
+        },
+        super::Storage::Sandbox(dir) => ContainerTarget::Sandbox { dir },
+    };
     let opts = ContainerOpts {
-        sif_path: &paths.sif_path,
-        overlay: &overlay,
+        target,
         config: &config,
         nv: flags.nv,
         rocm: flags.rocm,

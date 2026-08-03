@@ -9,30 +9,122 @@ pub mod verify;
 use crate::config::{Config, OverlayType};
 use crate::paths::AppPaths;
 use anyhow::bail;
+use std::path::PathBuf;
 
-/// Resolve the overlay path based on the configured overlay type.
-pub fn resolve_overlay(config: &Config, paths: &AppPaths) -> anyhow::Result<String> {
+/// What the container session runs against.
+#[derive(Debug)]
+pub enum Storage {
+    /// Read-only SIF plus a writable overlay (dir path or ext3 image path).
+    Overlay(String),
+    /// Writable sandbox directory — no SIF mounted at runtime.
+    Sandbox(PathBuf),
+}
+
+/// Resolve the runtime storage from config. Also validates that the
+/// pieces each mode needs actually exist (overlay modes need base.sif;
+/// sandbox mode does not — the SIF is only a delivery format there).
+pub fn resolve_storage(config: &Config, paths: &AppPaths) -> anyhow::Result<Storage> {
     match config.overlay.overlay_type {
-        OverlayType::Directory => {
-            if !paths.overlay_dir.exists() {
+        OverlayType::Directory | OverlayType::Ext3 => {
+            if !paths.sif_path.exists() {
                 bail!(
-                    "Directory overlay not found at {}. Run `nix-apptainer init` first.",
-                    paths.overlay_dir.display()
+                    "Base SIF not found at {}. Run `nix-apptainer init` first.",
+                    paths.sif_path.display()
                 );
             }
-            Ok(paths.overlay_dir.to_string_lossy().to_string())
+            match config.overlay.overlay_type {
+                OverlayType::Directory => {
+                    if !paths.overlay_dir.exists() {
+                        bail!(
+                            "Directory overlay not found at {}. Run `nix-apptainer init` first.",
+                            paths.overlay_dir.display()
+                        );
+                    }
+                    Ok(Storage::Overlay(
+                        paths.overlay_dir.to_string_lossy().to_string(),
+                    ))
+                }
+                OverlayType::Ext3 => {
+                    if !paths.overlay_path.exists() {
+                        bail!(
+                            "Overlay image not found at {}. Run `nix-apptainer init` first.",
+                            paths.overlay_path.display()
+                        );
+                    }
+                    Ok(Storage::Overlay(
+                        paths.overlay_path.to_string_lossy().to_string(),
+                    ))
+                }
+                OverlayType::Sandbox => unreachable!(),
+            }
         }
-        OverlayType::Ext3 => {
-            if !paths.overlay_path.exists() {
+        OverlayType::Sandbox => {
+            if !paths.sandbox_dir.exists() {
                 bail!(
-                    "Overlay image not found at {}. Run `nix-apptainer init` first.",
-                    paths.overlay_path.display()
+                    "Sandbox directory not found at {}. Run `nix-apptainer init` first.",
+                    paths.sandbox_dir.display()
                 );
             }
-            Ok(paths.overlay_path.to_string_lossy().to_string())
+            Ok(Storage::Sandbox(paths.sandbox_dir.clone()))
         }
-        // Sandbox mode has no overlay; this function is replaced by
-        // resolve_storage, which models all three modes.
-        OverlayType::Sandbox => bail!("Sandbox mode does not use an overlay."),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::OverlayConfig;
+    use tempfile::TempDir;
+
+    fn config_with(t: OverlayType) -> Config {
+        Config {
+            overlay: OverlayConfig {
+                overlay_type: t,
+                ext3_size_mb: 64,
+            },
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn test_resolve_storage_sandbox_ok() {
+        let tmp = TempDir::new().unwrap();
+        let paths = AppPaths::resolve_with_data_dir(tmp.path().to_path_buf());
+        std::fs::create_dir_all(&paths.sandbox_dir).unwrap();
+        let storage = resolve_storage(&config_with(OverlayType::Sandbox), &paths).unwrap();
+        match storage {
+            Storage::Sandbox(dir) => assert_eq!(dir, paths.sandbox_dir),
+            _ => panic!("expected Storage::Sandbox"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_storage_sandbox_missing() {
+        let tmp = TempDir::new().unwrap();
+        let paths = AppPaths::resolve_with_data_dir(tmp.path().to_path_buf());
+        let err = resolve_storage(&config_with(OverlayType::Sandbox), &paths).unwrap_err();
+        assert!(err.to_string().contains("init"), "err: {err}");
+    }
+
+    #[test]
+    fn test_resolve_storage_overlay_requires_sif() {
+        let tmp = TempDir::new().unwrap();
+        let paths = AppPaths::resolve_with_data_dir(tmp.path().to_path_buf());
+        std::fs::create_dir_all(&paths.overlay_dir).unwrap();
+        // overlay dir exists but base.sif does not
+        let err = resolve_storage(&config_with(OverlayType::Directory), &paths).unwrap_err();
+        assert!(err.to_string().contains("SIF"), "err: {err}");
+    }
+
+    #[test]
+    fn test_resolve_storage_overlay_ok() {
+        let tmp = TempDir::new().unwrap();
+        let paths = AppPaths::resolve_with_data_dir(tmp.path().to_path_buf());
+        std::fs::create_dir_all(&paths.overlay_dir).unwrap();
+        std::fs::write(&paths.sif_path, b"fake").unwrap();
+        let storage = resolve_storage(&config_with(OverlayType::Directory), &paths).unwrap();
+        matches!(storage, Storage::Overlay(_))
+            .then_some(())
+            .expect("expected Storage::Overlay");
     }
 }

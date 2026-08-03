@@ -10,10 +10,17 @@ pub enum ContainerMode {
     Exec,
 }
 
+/// What the apptainer invocation targets.
+pub enum ContainerTarget<'a> {
+    /// Read-only SIF with a writable overlay (`--overlay <path> <sif>`).
+    Overlay { sif: &'a Path, overlay: &'a str },
+    /// Writable sandbox directory (`--writable <dir>`), no overlay, no FUSE.
+    Sandbox { dir: &'a Path },
+}
+
 /// Options for building the apptainer command line.
 pub struct ContainerOpts<'a> {
-    pub sif_path: &'a Path,
-    pub overlay: &'a str,
+    pub target: ContainerTarget<'a>,
     pub config: &'a Config,
     pub nv: bool,
     pub rocm: bool,
@@ -39,9 +46,16 @@ pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<St
         ContainerMode::Exec => args.push("exec".to_string()),
     }
 
-    // Overlay
-    args.push("--overlay".to_string());
-    args.push(opts.overlay.to_string());
+    // Storage: overlay on a SIF, or a writable sandbox directory
+    match &opts.target {
+        ContainerTarget::Overlay { overlay, .. } => {
+            args.push("--overlay".to_string());
+            args.push(overlay.to_string());
+        }
+        ContainerTarget::Sandbox { .. } => {
+            args.push("--writable".to_string());
+        }
+    }
 
     // Isolate home directory: don't mount host $HOME or CWD into the
     // container. Prevents host dotfile conflicts.
@@ -90,8 +104,15 @@ pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<St
     // Passthrough args
     args.extend(opts.passthrough.iter().cloned());
 
-    // SIF path
-    args.push(opts.sif_path.to_string_lossy().to_string());
+    // Image argument: SIF for overlay modes, the sandbox dir otherwise
+    match &opts.target {
+        ContainerTarget::Overlay { sif, .. } => {
+            args.push(sif.to_string_lossy().to_string());
+        }
+        ContainerTarget::Sandbox { dir } => {
+            args.push(dir.to_string_lossy().to_string());
+        }
+    }
 
     args
 }
@@ -119,14 +140,61 @@ mod tests {
         }
     }
 
+    fn overlay_target<'a>(paths: &'a AppPaths, overlay: &'a str) -> ContainerTarget<'a> {
+        ContainerTarget::Overlay {
+            sif: &paths.sif_path,
+            overlay,
+        }
+    }
+
+    #[test]
+    fn test_sandbox_target_args() {
+        let config = test_config();
+        let dir = PathBuf::from("/data/na/sandbox");
+        let opts = ContainerOpts {
+            target: ContainerTarget::Sandbox { dir: &dir },
+            config: &config,
+            nv: false,
+            rocm: false,
+            bind: &[],
+            passthrough: &[],
+            quiet: false,
+        };
+        let args = build_apptainer_args(&opts, ContainerMode::Run);
+        assert_eq!(args[0], "run");
+        assert!(args.contains(&"--writable".to_string()));
+        assert!(!args.contains(&"--overlay".to_string()));
+        assert_eq!(args.last().unwrap(), "/data/na/sandbox");
+    }
+
+    #[test]
+    fn test_sandbox_target_exec_mode() {
+        let config = test_config();
+        let dir = PathBuf::from("/data/na/sandbox");
+        let opts = ContainerOpts {
+            target: ContainerTarget::Sandbox { dir: &dir },
+            config: &config,
+            nv: true,
+            rocm: false,
+            bind: &[],
+            passthrough: &[],
+            quiet: true,
+        };
+        let args = build_apptainer_args(&opts, ContainerMode::Exec);
+        // --quiet still first, --nv still honored, dir still last
+        assert_eq!(args[0], "--quiet");
+        assert_eq!(args[1], "exec");
+        assert!(args.contains(&"--nv".to_string()));
+        assert_eq!(args.last().unwrap(), "/data/na/sandbox");
+    }
+
     #[test]
     fn test_run_mode_basic() {
         let paths = test_paths();
         let overlay = test_overlay();
         let config = test_config();
         let opts = ContainerOpts {
-            sif_path: &paths.sif_path,
-            overlay: &overlay,
+            target: overlay_target(&paths, &overlay),
             config: &config,
             nv: false,
             rocm: false,
@@ -146,8 +214,7 @@ mod tests {
         let overlay = test_overlay();
         let config = test_config();
         let opts = ContainerOpts {
-            sif_path: &paths.sif_path,
-            overlay: &overlay,
+            target: overlay_target(&paths, &overlay),
             config: &config,
             nv: false,
             rocm: false,
@@ -165,8 +232,7 @@ mod tests {
         let overlay = test_overlay();
         let config = test_config();
         let opts = ContainerOpts {
-            sif_path: &paths.sif_path,
-            overlay: &overlay,
+            target: overlay_target(&paths, &overlay),
             config: &config,
             nv: true,
             rocm: false,
@@ -186,8 +252,7 @@ mod tests {
         let mut config = test_config();
         config.enter.gpu = GpuMode::Rocm;
         let opts = ContainerOpts {
-            sif_path: &paths.sif_path,
-            overlay: &overlay,
+            target: overlay_target(&paths, &overlay),
             config: &config,
             nv: false,
             rocm: false,
@@ -207,8 +272,7 @@ mod tests {
         config.enter.bind = vec!["/data:/data".to_string()];
         let flag_binds = vec!["/scratch:/scratch".to_string()];
         let opts = ContainerOpts {
-            sif_path: &paths.sif_path,
-            overlay: &overlay,
+            target: overlay_target(&paths, &overlay),
             config: &config,
             nv: false,
             rocm: false,
@@ -230,8 +294,7 @@ mod tests {
         let config = test_config();
         let passthrough = vec!["--writable-tmpfs".to_string()];
         let opts = ContainerOpts {
-            sif_path: &paths.sif_path,
-            overlay: &overlay,
+            target: overlay_target(&paths, &overlay),
             config: &config,
             nv: false,
             rocm: false,
@@ -249,8 +312,7 @@ mod tests {
         let overlay = test_overlay();
         let config = test_config();
         let opts = ContainerOpts {
-            sif_path: &paths.sif_path,
-            overlay: &overlay,
+            target: overlay_target(&paths, &overlay),
             config: &config,
             nv: false,
             rocm: false,
@@ -270,8 +332,7 @@ mod tests {
         let overlay = test_overlay();
         let config = test_config();
         let opts = ContainerOpts {
-            sif_path: &paths.sif_path,
-            overlay: &overlay,
+            target: overlay_target(&paths, &overlay),
             config: &config,
             nv: false,
             rocm: false,
@@ -290,8 +351,7 @@ mod tests {
         let overlay = test_overlay();
         let config = test_config();
         let opts = ContainerOpts {
-            sif_path: &paths.sif_path,
-            overlay: &overlay,
+            target: overlay_target(&paths, &overlay),
             config: &config,
             nv: false,
             rocm: false,
@@ -319,8 +379,7 @@ mod tests {
         let mut config = test_config();
         config.enter.mount_home = true;
         let opts = ContainerOpts {
-            sif_path: &paths.sif_path,
-            overlay: &overlay,
+            target: overlay_target(&paths, &overlay),
             config: &config,
             nv: false,
             rocm: false,
@@ -338,8 +397,7 @@ mod tests {
         let overlay = test_overlay();
         let config = test_config();
         let opts = ContainerOpts {
-            sif_path: &paths.sif_path,
-            overlay: &overlay,
+            target: overlay_target(&paths, &overlay),
             config: &config,
             nv: false,
             rocm: false,
