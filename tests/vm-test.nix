@@ -10,6 +10,34 @@
   cli,
 }:
 
+let
+  # All build inputs of hello, realized — the closure to seed into the
+  # container store so an offline in-container build can run.
+  helloInputs = pkgs.hello.inputDerivation;
+
+  # Test expression evaluated INSIDE the container. ${pkgs.path} is the
+  # same nixpkgs the image baked (flake input), so the import hits store
+  # paths that already exist in the unpacked sandbox.
+  helloTestExpr = pkgs.writeText "hello-custom.nix" ''
+    let
+      pkgs = import ${pkgs.path} { };
+      mk = name:
+        pkgs.hello.overrideAttrs (old: {
+          inherit name;
+          # Changing the greeting breaks hello's own test suite
+          # (tests/hello-1 asserts "Hello, world!"). This fixture exists to
+          # prove a real in-container compile happens, not to test hello.
+          doCheck = false;
+          postPatch = (old.postPatch or "")
+            + "\nsubstituteInPlace src/hello.c --replace-fail \"Hello, world!\" \"Hello, nix-apptainer!\"";
+        });
+    in
+    {
+      sandboxed = mk "hello-custom-sandboxed";
+      unsandboxed = mk "hello-custom-unsandboxed";
+    }
+  '';
+in
 pkgs.testers.runNixOSTest {
   name = "nix-apptainer-cli-lifecycle";
 
@@ -21,14 +49,17 @@ pkgs.testers.runNixOSTest {
       programs.singularity.package = pkgs.apptainer;
 
       # fuse-overlayfs for directory and ext3 overlay stacking + the CLI itself
+      # squashfsTools: apptainer's `build --sandbox` shells out to unsquashfs
       environment.systemPackages = [
         pkgs.fuse-overlayfs
+        pkgs.squashfsTools
         cli
       ];
 
-      # VM capacity
-      virtualisation.memorySize = 2048;
-      virtualisation.diskSize = 4096;
+      # VM capacity — an unpacked sandbox is several GB, and evaluating
+      # nixpkgs inside the container needs memory.
+      virtualisation.memorySize = 4096;
+      virtualisation.diskSize = 16384;
 
       # Apptainer bind-mounts /etc/localtime; ensure it exists
       time.timeZone = "UTC";
@@ -43,6 +74,18 @@ pkgs.testers.runNixOSTest {
 
       # Ship the SIF into the VM
       environment.etc."test/base-nixos.sif".source = sifImage;
+      environment.etc."test/hello-custom.nix".source = helloTestExpr;
+
+      # Host-side nix needs flakes-era CLI for `nix copy`
+      nix.settings.experimental-features = [ "nix-command" ];
+
+      # Realize hello's build closure AND the nixpkgs source tree the test
+      # expression imports into the VM's host store, so both can be copied
+      # into the container store for an offline in-container build.
+      virtualisation.additionalPaths = [
+        helloInputs
+        pkgs.path
+      ];
     };
 
   testScript = ''
@@ -266,5 +309,91 @@ pkgs.testers.runNixOSTest {
             phase="phase5-non-standard-home",
             home=P5_HOME,
         )
+
+    # ------------------------------------------------------------------
+    # Phase 6 — Sandbox-directory mode (no overlay, no FUSE)
+    # ------------------------------------------------------------------
+    P6_HOME = "/home/testuser/.nix-apptainer-sandbox"
+
+    with subtest("Phase 6: init with sandbox mode"):
+        machine.succeed(as_testuser(
+            "nix-apptainer init --yes "
+            "--sif /etc/test/base-nixos.sif "
+            "--overlay-type sandbox",
+            nix_apptainer_home=P6_HOME,
+        ))
+        machine.succeed(as_testuser(
+            "test -d $NIX_APPTAINER_HOME/sandbox/nix/store",
+            nix_apptainer_home=P6_HOME,
+        ))
+
+    with subtest("Phase 6: probe enabled the Nix build sandbox"):
+        machine.succeed(as_testuser(
+            "grep -q \"sandbox = true\" $NIX_APPTAINER_HOME/sandbox/etc/nix/nix.conf.local",
+            nix_apptainer_home=P6_HOME,
+        ))
+
+    with subtest("Phase 6: exec works without overlay or SIF mount"):
+        out = machine.succeed(as_testuser(
+            'nix-apptainer exec -- /bin/sh -c "echo sandbox-ok"',
+            nix_apptainer_home=P6_HOME,
+        ))
+        assert "sandbox-ok" in out, f"Expected sandbox-ok in: {out}"
+
+    with subtest("Phase 6: status reports sandbox mode"):
+        out = machine.succeed(as_testuser("nix-apptainer status", nix_apptainer_home=P6_HOME))
+        assert "sandbox" in out.lower(), f"status missing 'sandbox': {out}"
+
+    with subtest("Phase 6: seed hello build closure into container store"):
+        # Both the build inputs AND the nixpkgs source tree the expression
+        # imports. ${pkgs.path} is a distinct store path from anything the
+        # image baked, so it must be copied in explicitly or eval fails with
+        # "path ... does not exist".
+        machine.succeed(as_testuser(
+            "nix copy --no-check-sigs "
+            "--to \"local?root=$NIX_APPTAINER_HOME/sandbox\" "
+            "${helloInputs} ${pkgs.path}",
+            nix_apptainer_home=P6_HOME,
+        ))
+
+    with subtest("Phase 6: SANDBOXED local build of patched hello"):
+        # Nix ignores $HOME unless the caller owns it ("not owned by you,
+        # falling back to ... 'passwd' file"), so a bare /tmp does not work
+        # as an eval-cache location — use a testuser-owned dir under it.
+        machine.succeed(as_testuser(
+            "mkdir -p /tmp/nixhome && cp /etc/test/hello-custom.nix /tmp/hello-custom.nix",
+            nix_apptainer_home=P6_HOME,
+        ))
+        machine.succeed(as_testuser(
+            "nix-apptainer exec -- /usr/bin/env HOME=/tmp/nixhome "
+            "nix-build --option sandbox true --option substituters \"\" "
+            "-o /tmp/result-sandboxed -A sandboxed /tmp/hello-custom.nix",
+            nix_apptainer_home=P6_HOME,
+        ))
+        out = machine.succeed(as_testuser(
+            "nix-apptainer exec -- /tmp/result-sandboxed/bin/hello",
+            nix_apptainer_home=P6_HOME,
+        ))
+        assert "Hello, nix-apptainer!" in out, f"sandboxed hello printed: {out}"
+
+    with subtest("Phase 6: UNSANDBOXED local build of patched hello"):
+        machine.succeed(as_testuser(
+            "nix-apptainer exec -- /usr/bin/env HOME=/tmp/nixhome "
+            "nix-build --option sandbox false --option substituters \"\" "
+            "-o /tmp/result-unsandboxed -A unsandboxed /tmp/hello-custom.nix",
+            nix_apptainer_home=P6_HOME,
+        ))
+        out = machine.succeed(as_testuser(
+            "nix-apptainer exec -- /tmp/result-unsandboxed/bin/hello",
+            nix_apptainer_home=P6_HOME,
+        ))
+        assert "Hello, nix-apptainer!" in out, f"unsandboxed hello printed: {out}"
+
+    with subtest("Phase 6: clean removes the sandbox"):
+        machine.succeed(as_testuser("nix-apptainer clean --all", nix_apptainer_home=P6_HOME))
+        machine.fail(as_testuser(
+            "test -d $NIX_APPTAINER_HOME/sandbox",
+            nix_apptainer_home=P6_HOME,
+        ))
   '';
 }
