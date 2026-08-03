@@ -87,12 +87,26 @@ runCommand "nix-apptainer-sandbox"
     GROUP
     fi
 
-    # Bind-mount targets: in `--writable` sandbox mode apptainer cannot
-    # fabricate missing mount points, so every default bind destination
-    # must exist in the image. Guard against overwriting etc-derivation
-    # symlinks (e.g. /etc/hosts).
+    # Bind-mount / packer targets. Two requirements:
+    #   1. In `--writable` sandbox mode apptainer cannot fabricate missing
+    #      mount points, so every default bind destination must exist.
+    #   2. `apptainer build --sandbox` OVERWRITES /etc/hosts and
+    #      /etc/resolv.conf when inserting its base environment. A NixOS
+    #      etc-derivation symlink is an ABSOLUTE /nix/store path, so writing
+    #      through it escapes the tree and lands in the read-only host store
+    #      (EROFS). These must be regular files, not symlinks.
     for f in etc/resolv.conf etc/hosts etc/localtime; do
-      [ -e "$sandbox/$f" ] || [ -L "$sandbox/$f" ] || touch "$sandbox/$f"
+      if [ -L "$sandbox/$f" ]; then
+        if [ -e "$sandbox/$f" ]; then
+          cp -L "$sandbox/$f" "$sandbox/$f.materialized"
+        else
+          : > "$sandbox/$f.materialized"
+        fi
+        mv -f "$sandbox/$f.materialized" "$sandbox/$f"
+      elif [ ! -e "$sandbox/$f" ]; then
+        touch "$sandbox/$f"
+      fi
+      chmod u+w "$sandbox/$f"
     done
 
     ln -s ${bashInteractive}/bin/bash $sandbox/bin/sh

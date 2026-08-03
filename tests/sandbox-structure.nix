@@ -123,9 +123,13 @@ runCommand "nix-apptainer-test-sandbox"
 
     # --- Bind-mount targets for --writable sandbox mode ---
     # Apptainer can't create missing mount points without an overlay.
+    # These must be REGULAR FILES, not store symlinks: apptainer's packer
+    # writes through them, and an absolute /nix/store target escapes the
+    # unpacked tree into the read-only host store (EROFS).
     for f in etc/resolv.conf etc/hosts etc/localtime; do
-      [ -e "$sb/$f" ] || [ -L "$sb/$f" ] || fail "bind target $f missing"
-      pass "bind target $f exists"
+      [ ! -L "$sb/$f" ] || fail "bind target $f is a symlink (packer writes through it)"
+      [ -f "$sb/$f" ] || fail "bind target $f missing or not a regular file"
+      pass "bind target $f is a regular file"
     done
 
     [ -d "$sb/.singularity.d/libs" ] || fail ".singularity.d/libs missing (--nv target)"
