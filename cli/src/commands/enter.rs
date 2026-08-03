@@ -13,6 +13,7 @@ pub struct EnterFlags {
     pub bind: Vec<String>,
     pub passthrough: Vec<String>,
     pub quiet: bool,
+    pub force: bool,
 }
 
 pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
@@ -53,6 +54,12 @@ pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
         quiet: flags.quiet || config.enter.quiet,
     };
     let args = build_apptainer_args(&opts, ContainerMode::Run);
+
+    if let super::Storage::Sandbox(_) = &storage
+        && let Some(lock) = crate::lock::acquire(&paths.sandbox_lock, flags.force)?
+    {
+        crate::lock::hold_across_exec(lock)?;
+    }
 
     let err = exec_replace(&apptainer, &args);
     Err(err.into())

@@ -14,6 +14,7 @@ pub struct ExecFlags {
     pub passthrough: Vec<String>,
     pub command: Vec<String>,
     pub quiet: bool,
+    pub force: bool,
 }
 
 pub fn run(flags: ExecFlags) -> anyhow::Result<()> {
@@ -59,6 +60,12 @@ pub fn run(flags: ExecFlags) -> anyhow::Result<()> {
     };
     let mut args = build_apptainer_args(&opts, ContainerMode::Exec);
     args.extend(flags.command.iter().cloned());
+
+    if let super::Storage::Sandbox(_) = &storage
+        && let Some(lock) = crate::lock::acquire(&paths.sandbox_lock, flags.force)?
+    {
+        crate::lock::hold_across_exec(lock)?;
+    }
 
     let err = exec_replace(&apptainer, &args);
     Err(err.into())

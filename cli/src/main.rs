@@ -8,6 +8,7 @@ mod commands;
 mod config;
 mod container;
 mod digest;
+mod lock;
 mod overlay;
 mod paths;
 mod sif;
@@ -60,6 +61,9 @@ enum Commands {
         /// Suppress apptainer warnings
         #[arg(short, long)]
         quiet: bool,
+        /// Enter even if another session holds the sandbox lock (sandbox mode)
+        #[arg(long)]
+        force: bool,
         /// Extra arguments passed through to apptainer
         #[arg(last = true)]
         passthrough: Vec<String>,
@@ -78,6 +82,9 @@ enum Commands {
         /// Suppress apptainer warnings
         #[arg(short, long)]
         quiet: bool,
+        /// Run even if another session holds the sandbox lock (sandbox mode)
+        #[arg(long)]
+        force: bool,
         /// Extra arguments passed through to apptainer
         #[arg(long, allow_hyphen_values = true, num_args = 0..)]
         passthrough: Vec<String>,
@@ -133,6 +140,7 @@ fn main() -> anyhow::Result<()> {
             rocm,
             bind,
             quiet,
+            force,
             passthrough,
         } => commands::enter::run(commands::enter::EnterFlags {
             nv,
@@ -140,12 +148,14 @@ fn main() -> anyhow::Result<()> {
             bind,
             passthrough,
             quiet,
+            force,
         }),
         Commands::Exec {
             nv,
             rocm,
             bind,
             quiet,
+            force,
             passthrough,
             command,
         } => commands::exec::run(commands::exec::ExecFlags {
@@ -155,6 +165,7 @@ fn main() -> anyhow::Result<()> {
             passthrough,
             command,
             quiet,
+            force,
         }),
         Commands::Update { check, yes } => {
             commands::update::run(commands::update::UpdateFlags { check, yes })

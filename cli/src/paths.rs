@@ -8,8 +8,6 @@ pub struct AppPaths {
     pub overlay_path: PathBuf,
     pub overlay_dir: PathBuf,
     pub sandbox_dir: PathBuf,
-    /// Consumed by the sandbox session lock (see `lock.rs`).
-    #[allow(dead_code)]
     pub sandbox_lock: PathBuf,
     pub state_file: PathBuf,
     pub cache_dir: PathBuf,
