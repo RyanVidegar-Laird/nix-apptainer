@@ -111,7 +111,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     };
 
     // --- System checks ---
-    let report = checks::run_all_checks(&sys, &paths.data_dir);
+    let report = checks::run_all_checks(&sys, &paths.data_dir, &OverlayType::Directory);
     for r in &report.results {
         let icon = if r.passed {
             "\u{2713}"
@@ -162,7 +162,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     };
 
     // Show disk space at chosen location
-    let disk_check = checks::check_disk_space(&sys, &paths.data_dir);
+    let disk_check = checks::check_disk_space(&sys, &paths.data_dir, 2.0);
     println!("  Disk space: {}", disk_check.message);
     println!();
 

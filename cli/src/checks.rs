@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::config::OverlayType;
 use crate::system::System;
 
 pub struct CheckResult {
@@ -191,15 +192,58 @@ pub fn check_fakeroot(sys: &dyn System) -> CheckResult {
     }
 }
 
-/// Check available disk space at the given path.
-pub fn check_disk_space(sys: &dyn System, path: &Path) -> CheckResult {
+/// statfs f_type magics for network/parallel filesystems where an unpacked
+/// sandbox (~10^5 small files) performs poorly and eats inode quota.
+const NETWORK_FS_MAGICS: &[(i64, &str)] = &[
+    (0x0BD0_0BD0, "Lustre"),
+    (0x6969, "NFS"),
+    (0x4750_4653, "GPFS"),
+    (0x1983_0326, "BeeGFS"),
+    (0x00C3_6400, "CephFS"),
+];
+
+pub fn network_fs_name(magic: i64) -> Option<&'static str> {
+    NETWORK_FS_MAGICS
+        .iter()
+        .find(|(m, _)| *m == magic)
+        .map(|(_, n)| *n)
+}
+
+/// Sandbox mode only: warn (never fail) when the data dir is on a
+/// network/parallel filesystem.
+pub fn check_sandbox_location(sys: &dyn System, path: &Path) -> CheckResult {
+    let check_path = std::iter::successors(Some(path), |p| p.parent())
+        .find(|p| sys.path_exists(p))
+        .unwrap_or(Path::new("/"));
+    match sys.filesystem_magic(check_path).and_then(network_fs_name) {
+        Some(fs) => CheckResult {
+            name: "Sandbox location".to_string(),
+            passed: false,
+            required: false,
+            message: format!(
+                "{fs} filesystem detected — an unpacked sandbox is hundreds of thousands of \
+                 small files (inode quota, slow metadata). Prefer node-local or scratch \
+                 storage via --data-dir or NIX_APPTAINER_HOME."
+            ),
+        },
+        None => CheckResult {
+            name: "Sandbox location".to_string(),
+            passed: true,
+            required: false,
+            message: "local filesystem".to_string(),
+        },
+    }
+}
+
+/// Check available disk space at the given path against a minimum in GB.
+pub fn check_disk_space(sys: &dyn System, path: &Path, min_gb: f64) -> CheckResult {
     let check_path = std::iter::successors(Some(path), |p| p.parent())
         .find(|p| p.exists())
         .unwrap_or(Path::new("/"));
     match sys.available_disk_bytes(check_path) {
         Some(bytes) => {
             let gb = bytes as f64 / 1_073_741_824.0;
-            let passed = gb >= 2.0;
+            let passed = gb >= min_gb;
             CheckResult {
                 name: "Disk space".to_string(),
                 passed,
@@ -228,14 +272,27 @@ pub struct SystemCheckReport {
     pub any_required_failed: bool,
 }
 
-/// Run all system checks.
-pub fn run_all_checks(sys: &dyn System, data_path: &Path) -> SystemCheckReport {
-    let results = vec![
-        find_apptainer(sys),
-        check_fuse(sys),
-        check_fakeroot(sys),
-        check_disk_space(sys, data_path),
-    ];
+/// Run all system checks appropriate for the chosen storage mode.
+/// Sandbox mode needs no FUSE at all; overlay modes need the full stack.
+pub fn run_all_checks(
+    sys: &dyn System,
+    data_path: &Path,
+    overlay_type: &OverlayType,
+) -> SystemCheckReport {
+    let mut results = vec![find_apptainer(sys)];
+    match overlay_type {
+        OverlayType::Sandbox => {
+            results.push(check_sandbox_location(sys, data_path));
+            // Unpacked sandbox needs several GB up front
+            results.push(check_disk_space(sys, data_path, 10.0));
+        }
+        OverlayType::Directory | OverlayType::Ext3 => {
+            results.push(check_fuse(sys));
+            results.push(check_fuse_overlayfs(sys));
+            results.push(check_fakeroot(sys));
+            results.push(check_disk_space(sys, data_path, 2.0));
+        }
+    }
     let any_required_failed = results.iter().any(|c| c.required && !c.passed);
     let apptainer_binary = apptainer_binary(sys);
     SystemCheckReport {
@@ -372,7 +429,7 @@ mod tests {
     #[test]
     fn test_disk_space_plenty() {
         let sys = MockSystem::with_apptainer();
-        let result = check_disk_space(&sys, Path::new("/tmp"));
+        let result = check_disk_space(&sys, Path::new("/tmp"), 2.0);
         assert!(result.passed);
     }
 
@@ -380,7 +437,7 @@ mod tests {
     fn test_disk_space_low() {
         let mut sys = MockSystem::with_apptainer();
         sys.disk_bytes = Some(1_073_741_824);
-        let result = check_disk_space(&sys, Path::new("/tmp"));
+        let result = check_disk_space(&sys, Path::new("/tmp"), 2.0);
         assert!(!result.passed);
     }
 
@@ -388,7 +445,7 @@ mod tests {
     fn test_disk_space_unavailable() {
         let mut sys = MockSystem::with_apptainer();
         sys.disk_bytes = None;
-        let result = check_disk_space(&sys, Path::new("/tmp"));
+        let result = check_disk_space(&sys, Path::new("/tmp"), 2.0);
         assert!(result.passed);
     }
 
@@ -464,7 +521,7 @@ mod tests {
     #[test]
     fn test_run_all_checks_all_pass() {
         let sys = MockSystem::with_apptainer();
-        let report = run_all_checks(&sys, Path::new("/tmp"));
+        let report = run_all_checks(&sys, Path::new("/tmp"), &OverlayType::Directory);
         assert!(!report.any_required_failed);
         assert!(report.apptainer_binary.is_some());
     }
@@ -472,7 +529,63 @@ mod tests {
     #[test]
     fn test_run_all_checks_required_fails() {
         let sys = MockSystem::empty();
-        let report = run_all_checks(&sys, Path::new("/tmp"));
+        let report = run_all_checks(&sys, Path::new("/tmp"), &OverlayType::Directory);
         assert!(report.any_required_failed);
+    }
+
+    #[test]
+    fn test_network_fs_name() {
+        assert_eq!(network_fs_name(0x0BD0_0BD0), Some("Lustre"));
+        assert_eq!(network_fs_name(0x6969), Some("NFS"));
+        assert_eq!(network_fs_name(0x0187_3101), None); // ext4-ish magic
+    }
+
+    #[test]
+    fn test_check_sandbox_location_warns_on_lustre() {
+        let mut sys = MockSystem::with_apptainer();
+        sys.fs_magic = Some(0x0BD0_0BD0);
+        sys.existing_paths
+            .push(std::path::PathBuf::from("/lustre/home"));
+        let result = check_sandbox_location(&sys, Path::new("/lustre/home/user/na"));
+        assert!(!result.passed);
+        assert!(!result.required);
+        assert!(result.message.contains("Lustre"), "msg: {}", result.message);
+    }
+
+    #[test]
+    fn test_check_sandbox_location_local_ok() {
+        let mut sys = MockSystem::with_apptainer();
+        sys.fs_magic = Some(0x0187_3101);
+        sys.existing_paths.push(std::path::PathBuf::from("/home"));
+        let result = check_sandbox_location(&sys, Path::new("/home/user/na"));
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_run_all_checks_sandbox_mode_skips_fuse() {
+        // no FUSE anywhere; apptainer must still be found for the report to pass
+        let mut sys = MockSystem::empty();
+        sys.commands.insert(
+            "apptainer".to_string(),
+            "apptainer version 1.3.0".to_string(),
+        );
+        sys.disk_bytes = Some(20 * 1_073_741_824);
+        let report = run_all_checks(&sys, Path::new("/tmp"), &OverlayType::Sandbox);
+        assert!(
+            !report.any_required_failed,
+            "sandbox mode must not require FUSE"
+        );
+        assert!(!report.results.iter().any(|r| r.name == "FUSE support"));
+    }
+
+    #[test]
+    fn test_run_all_checks_overlay_mode_requires_fuse() {
+        let mut sys = MockSystem::empty();
+        sys.commands.insert(
+            "apptainer".to_string(),
+            "apptainer version 1.3.0".to_string(),
+        );
+        let report = run_all_checks(&sys, Path::new("/tmp"), &OverlayType::Directory);
+        assert!(report.any_required_failed, "overlay mode must require FUSE");
     }
 }
