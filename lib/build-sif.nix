@@ -51,18 +51,23 @@ let
         mkdir rootfs
         cp -a ${sandbox}/. rootfs/
 
-        # Make directories writable so fuse-overlayfs can create upper-layer
-        # entries. Without this, the overlay can't write to /nix/var, /nix/store,
-        # etc. because nix store outputs are read-only (mode 555).
+        # Make the whole tree owner-writable. Nix store outputs are read-only
+        # (mode 555), which breaks both runtime modes:
+        #   - overlay modes: fuse-overlayfs can't create upper-layer entries
+        #   - sandbox mode: `apptainer build --sandbox` writes into the
+        #     unpacked tree (.singularity.d/actions, env/*.sh, runscript) and
+        #     `--writable` sessions write anywhere
+        # Enumerating paths here encodes an overlay-mode assumption — that only
+        # the paths we anticipate need writes. `--writable` inverts that: the
+        # runtime owns the whole tree.
         #
-        # Security note: this makes /nix/store writable in the overlay layer,
-        # matching the trust model of single-user Nix (no daemon, user owns
-        # the store). The base squashfs remains immutable. Nix's content-
-        # addressing and signature verification still protect against
-        # substituter-level tampering. A user could modify their own overlay's
-        # store paths, but only affects their own environment.
-        chmod -R u+w rootfs/nix/var rootfs/nix/store rootfs/home \
-          rootfs/tmp rootfs/var rootfs/root rootfs/etc
+        # Security note: this makes /nix/store writable, matching the trust
+        # model of single-user Nix (no daemon, user owns the store). The base
+        # squashfs remains immutable in overlay modes. Nix's content-addressing
+        # and signature verification still protect against substituter-level
+        # tampering. A user could modify their own store paths, but that only
+        # affects their own environment.
+        chmod -R u+w rootfs
 
         # Some fuse-overlayfs versions report EPERM from access(path, W_OK)
         # on 755 dirs even when owned by the caller. Nix checks this on

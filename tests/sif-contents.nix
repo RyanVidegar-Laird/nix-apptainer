@@ -73,7 +73,9 @@ runCommand "nix-apptainer-test-sif"
     # --- Verify writable permissions on overlay-targeted dirs ---
     echo ""
     echo "Checking overlay-writable permissions..."
-    for dir in nix/store nix/var home tmp var root etc; do
+    # .singularity.d must be writable too: `apptainer build --sandbox` writes
+    # actions/, env/*.sh and runscript into the unpacked tree (sandbox mode).
+    for dir in nix/store nix/var home tmp var root etc .singularity.d .singularity.d/env usr/local/bin; do
       if [ -d "extracted/$dir" ]; then
         # Check owner has write permission
         perms=$(stat -c '%a' "extracted/$dir")
