@@ -61,6 +61,117 @@ pub fn check_fuse(sys: &dyn System) -> CheckResult {
     }
 }
 
+/// Parse fuse-overlayfs --version output, e.g. "fuse-overlayfs: version 1.13".
+pub fn parse_fuse_overlayfs_version(output: &str) -> Option<(u32, u32)> {
+    for tok in output.split_whitespace() {
+        let t = tok.trim_matches(|c: char| !(c.is_ascii_digit() || c == '.'));
+        let mut parts = t.split('.');
+        if let (Some(maj), Some(min)) = (parts.next(), parts.next())
+            && let (Ok(maj), Ok(min)) = (maj.parse(), min.parse())
+        {
+            return Some((maj, min));
+        }
+    }
+    None
+}
+
+/// fuse-overlayfs ≤1.13 answers access(W_OK) with EPERM on 0755 dirs the
+/// caller owns (containers/fuse-overlayfs#232, #374) — breaks local builds.
+pub fn fuse_overlayfs_is_buggy(version: (u32, u32)) -> bool {
+    version <= (1, 13)
+}
+
+/// The fuse-overlayfs bundled with an apptainer install. Apptainer resolves
+/// helpers from libexec/<runtime>/bin BEFORE $PATH, so this is the binary
+/// that actually runs.
+pub fn bundled_fuse_overlayfs(
+    sys: &dyn System,
+    apptainer_path: &Path,
+) -> Option<std::path::PathBuf> {
+    let prefix = apptainer_path.parent()?.parent()?;
+    for runtime in ["apptainer", "singularity"] {
+        let candidate = prefix
+            .join("libexec")
+            .join(runtime)
+            .join("bin")
+            .join("fuse-overlayfs");
+        if sys.path_exists(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Overlay modes only: fail on the bundled-fuse-overlayfs ≤1.13 bug, warn on
+/// the no-fuse-overlayfs-at-all trap (kernel overlayfs in userns breaks Nix).
+pub fn check_fuse_overlayfs(sys: &dyn System) -> CheckResult {
+    let name = "fuse-overlayfs".to_string();
+    let Some(apptainer) = apptainer_binary(sys) else {
+        return CheckResult {
+            name,
+            passed: true,
+            message: "skipped (no container runtime)".to_string(),
+            required: false,
+        };
+    };
+    let Some(apptainer_path) = sys.resolve_command_path(&apptainer) else {
+        return CheckResult {
+            name,
+            passed: true,
+            message: "could not locate the apptainer binary".to_string(),
+            required: false,
+        };
+    };
+    if let Some(bundled) = bundled_fuse_overlayfs(sys, &apptainer_path) {
+        let version = sys
+            .command_version(&bundled.to_string_lossy(), "--version")
+            .as_deref()
+            .and_then(parse_fuse_overlayfs_version);
+        match version {
+            Some(v) if fuse_overlayfs_is_buggy(v) => CheckResult {
+                name,
+                passed: false,
+                required: true,
+                message: format!(
+                    "bundled fuse-overlayfs {}.{} has a permission bug that breaks local Nix \
+                     builds on overlay stores. Use `--overlay-type sandbox`, or ask admins to \
+                     upgrade apptainer.",
+                    v.0, v.1
+                ),
+            },
+            Some(v) => CheckResult {
+                name,
+                passed: true,
+                required: true,
+                message: format!("bundled, version {}.{}", v.0, v.1),
+            },
+            None => CheckResult {
+                name,
+                passed: true,
+                required: false,
+                message: "bundled (version unknown)".to_string(),
+            },
+        }
+    } else if sys.find_command("fuse-overlayfs").is_some() {
+        CheckResult {
+            name,
+            passed: true,
+            required: false,
+            message: "found on PATH".to_string(),
+        }
+    } else {
+        CheckResult {
+            name,
+            passed: false,
+            required: false,
+            message: "not bundled and not on PATH — apptainer will fall back to kernel \
+                      overlayfs, which breaks Nix (rename/unlink in userns). \
+                      Run inside `nix shell nixpkgs#fuse-overlayfs`."
+                .to_string(),
+        }
+    }
+}
+
 /// Check for fakeroot support.
 pub fn check_fakeroot(sys: &dyn System) -> CheckResult {
     if sys.command_version("fakeroot", "--version").is_some() {
@@ -143,6 +254,8 @@ mod tests {
         commands: std::collections::HashMap<String, String>,
         disk_bytes: Option<u64>,
         existing_paths: Vec<std::path::PathBuf>,
+        resolved_paths: std::collections::HashMap<String, std::path::PathBuf>,
+        fs_magic: Option<i64>,
     }
 
     impl MockSystem {
@@ -160,6 +273,8 @@ mod tests {
                 commands,
                 disk_bytes: Some(10 * 1_073_741_824),
                 existing_paths: vec![std::path::PathBuf::from("/dev/fuse")],
+                resolved_paths: std::collections::HashMap::new(),
+                fs_magic: None,
             }
         }
 
@@ -168,6 +283,8 @@ mod tests {
                 commands: std::collections::HashMap::new(),
                 disk_bytes: None,
                 existing_paths: vec![],
+                resolved_paths: std::collections::HashMap::new(),
+                fs_magic: None,
             }
         }
     }
@@ -187,6 +304,12 @@ mod tests {
         }
         fn path_exists(&self, path: &Path) -> bool {
             self.existing_paths.iter().any(|p| p == path)
+        }
+        fn resolve_command_path(&self, name: &str) -> Option<std::path::PathBuf> {
+            self.resolved_paths.get(name).cloned()
+        }
+        fn filesystem_magic(&self, _path: &Path) -> Option<i64> {
+            self.fs_magic
         }
     }
 
@@ -267,6 +390,75 @@ mod tests {
         sys.disk_bytes = None;
         let result = check_disk_space(&sys, Path::new("/tmp"));
         assert!(result.passed);
+    }
+
+    #[test]
+    fn test_parse_fuse_overlayfs_version() {
+        assert_eq!(
+            parse_fuse_overlayfs_version("fuse-overlayfs: version 1.13"),
+            Some((1, 13))
+        );
+        assert_eq!(
+            parse_fuse_overlayfs_version("fuse-overlayfs: version 1.10\nFUSE library version 3.9.1"),
+            Some((1, 10))
+        );
+        assert_eq!(parse_fuse_overlayfs_version("garbage"), None);
+    }
+
+    #[test]
+    fn test_fuse_overlayfs_buggy_boundary() {
+        assert!(fuse_overlayfs_is_buggy((1, 13)));
+        assert!(fuse_overlayfs_is_buggy((1, 10)));
+        assert!(!fuse_overlayfs_is_buggy((1, 14)));
+        assert!(!fuse_overlayfs_is_buggy((2, 0)));
+    }
+
+    #[test]
+    fn test_bundled_fuse_overlayfs_found() {
+        let mut sys = MockSystem::with_apptainer();
+        let helper =
+            std::path::PathBuf::from("/opt/apptainer/libexec/apptainer/bin/fuse-overlayfs");
+        sys.existing_paths.push(helper.clone());
+        let found = bundled_fuse_overlayfs(&sys, Path::new("/opt/apptainer/bin/apptainer"));
+        assert_eq!(found, Some(helper));
+    }
+
+    #[test]
+    fn test_check_fuse_overlayfs_buggy_bundled_fails_required() {
+        let mut sys = MockSystem::with_apptainer();
+        sys.resolved_paths.insert(
+            "apptainer".to_string(),
+            std::path::PathBuf::from("/usr/bin/apptainer"),
+        );
+        sys.existing_paths.push(std::path::PathBuf::from(
+            "/usr/libexec/apptainer/bin/fuse-overlayfs",
+        ));
+        sys.commands.insert(
+            "/usr/libexec/apptainer/bin/fuse-overlayfs".to_string(),
+            "fuse-overlayfs: version 1.13".to_string(),
+        );
+        let result = check_fuse_overlayfs(&sys);
+        assert!(!result.passed);
+        assert!(result.required);
+        assert!(result.message.contains("sandbox"), "msg: {}", result.message);
+    }
+
+    #[test]
+    fn test_check_fuse_overlayfs_no_bundled_no_path_warns() {
+        let mut sys = MockSystem::with_apptainer();
+        sys.resolved_paths.insert(
+            "apptainer".to_string(),
+            std::path::PathBuf::from("/usr/bin/apptainer"),
+        );
+        // no bundled helper, no fuse-overlayfs on PATH
+        let result = check_fuse_overlayfs(&sys);
+        assert!(!result.passed);
+        assert!(!result.required); // warning, not fatal
+        assert!(
+            result.message.contains("kernel overlayfs"),
+            "msg: {}",
+            result.message
+        );
     }
 
     #[test]

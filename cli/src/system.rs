@@ -17,6 +17,10 @@ pub trait System {
     fn available_disk_bytes(&self, path: &Path) -> Option<u64>;
     /// Check if a path exists on the filesystem.
     fn path_exists(&self, path: &Path) -> bool;
+    /// Resolve a command name to its on-disk path via $PATH (symlinks followed).
+    fn resolve_command_path(&self, name: &str) -> Option<std::path::PathBuf>;
+    /// statfs(2) f_type magic for the filesystem holding `path`.
+    fn filesystem_magic(&self, path: &Path) -> Option<i64>;
 }
 
 /// Real system interactions — delegates to actual OS commands.
@@ -59,5 +63,18 @@ impl System for RealSystem {
 
     fn path_exists(&self, path: &Path) -> bool {
         path.exists()
+    }
+
+    fn resolve_command_path(&self, name: &str) -> Option<std::path::PathBuf> {
+        let path_var = std::env::var_os("PATH")?;
+        std::env::split_paths(&path_var)
+            .map(|d| d.join(name))
+            .find(|c| c.is_file())
+            .map(|c| std::fs::canonicalize(&c).unwrap_or(c))
+    }
+
+    fn filesystem_magic(&self, path: &Path) -> Option<i64> {
+        let stat = nix::sys::statfs::statfs(path).ok()?;
+        Some(stat.filesystem_type().0 as i64)
     }
 }
