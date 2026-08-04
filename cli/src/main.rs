@@ -14,6 +14,7 @@ mod overlay;
 mod paths;
 mod sandbox;
 mod sif;
+mod sifmeta;
 mod state;
 mod system;
 mod util;
