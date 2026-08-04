@@ -9,6 +9,7 @@ mod config;
 mod container;
 mod digest;
 mod lock;
+mod mounts;
 mod overlay;
 mod paths;
 mod sandbox;

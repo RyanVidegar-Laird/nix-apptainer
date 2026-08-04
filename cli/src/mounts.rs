@@ -1,0 +1,223 @@
+//! Mount-point discovery and seeding for sandbox mode.
+//!
+//! In `--writable` mode apptainer cannot fabricate missing mount points,
+//! so site-configured binds are silently skipped ("Skipping mount ...").
+//! This module parses those warnings, and pre-creates mount points inside
+//! the unpacked sandbox tree. We only create paths — the site's
+//! apptainer.conf (or our own --bind/--mount args) does the mounting.
+
+use std::path::Path;
+
+/// Extract container paths from apptainer "Skipping mount <path> [...]"
+/// warnings. Deduplicates, preserves order, absolute paths only.
+pub fn parse_skipped_mounts(stderr: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for line in stderr.lines() {
+        if let Some(rest) = line.split("Skipping mount ").nth(1) {
+            let path = rest.split_whitespace().next().unwrap_or("");
+            if path.starts_with('/') && seen.insert(path.to_string()) {
+                out.push(path.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// Container-side destination of a --bind entry ("src", "src:dst", "src:dst:opts").
+pub fn bind_dest(entry: &str) -> Option<String> {
+    let mut parts = entry.split(':');
+    let src = parts.next()?;
+    let dst = parts.next().unwrap_or(src);
+    dst.starts_with('/').then(|| dst.to_string())
+}
+
+/// Container-side destination of a long-form --mount entry.
+pub fn mount_dest(entry: &str) -> Option<String> {
+    entry.split(',').find_map(|kv| {
+        let (k, v) = kv.split_once('=')?;
+        matches!(k.trim(), "dest" | "destination" | "dst" | "target").then(|| v.trim().to_string())
+    })
+}
+
+/// What `seed_path` did.
+pub enum Seeded {
+    /// Created a directory mirroring a host directory.
+    Dir,
+    /// Created an empty file mirroring a host file.
+    File,
+    /// Host path missing — created a directory and the caller should warn.
+    MissingHostDir,
+    /// Target already present in the sandbox — nothing to do.
+    Exists,
+}
+
+/// Create `container_path` inside the sandbox, mirroring the host path's
+/// type (file vs directory). The host path is stat'd because for site
+/// binds src == dst, so the host tells us which kind the mount expects.
+pub fn seed_path(sandbox_dir: &Path, container_path: &str) -> anyhow::Result<Seeded> {
+    let target = sandbox_dir.join(container_path.trim_start_matches('/'));
+    if target.symlink_metadata().is_ok() {
+        return Ok(Seeded::Exists);
+    }
+    match std::fs::metadata(container_path) {
+        Ok(m) if m.is_file() => {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::File::create(&target)?;
+            Ok(Seeded::File)
+        }
+        Ok(_) => {
+            std::fs::create_dir_all(&target)?;
+            Ok(Seeded::Dir)
+        }
+        Err(_) => {
+            std::fs::create_dir_all(&target)?;
+            Ok(Seeded::MissingHostDir)
+        }
+    }
+}
+
+/// Seed a list of container paths, printing warnings instead of failing —
+/// a missing mount point degrades to a skipped mount, same as today.
+pub fn seed_paths(sandbox_dir: &Path, paths: &[String]) {
+    for p in paths {
+        match seed_path(sandbox_dir, p) {
+            Ok(Seeded::MissingHostDir) => {
+                eprintln!(
+                    "Warning: {p} does not exist on the host; created a directory mount point anyway."
+                );
+            }
+            Ok(_) => {}
+            Err(e) => eprintln!("Warning: could not create mount point {p}: {e}"),
+        }
+    }
+}
+
+/// Ensure every configured mount target exists in the sandbox:
+/// mount_points, bind destinations (config + flags), long-form mount
+/// destinations. Idempotent and cheap — called before every sandbox launch.
+pub fn ensure_mount_points(
+    sandbox_dir: &Path,
+    cfg: &crate::config::EnterConfig,
+    extra_binds: &[String],
+) {
+    let mut targets: Vec<String> = cfg.mount_points.clone();
+    targets.extend(cfg.bind.iter().filter_map(|b| bind_dest(b)));
+    targets.extend(extra_binds.iter().filter_map(|b| bind_dest(b)));
+    targets.extend(cfg.mount.iter().filter_map(|m| mount_dest(m)));
+    seed_paths(sandbox_dir, &targets);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_parse_skipped_mounts() {
+        let stderr = "\
+WARNING: Skipping mount /datastore [hostfs]: /datastore doesn't exist in container
+WARNING: Skipping mount /share [hostfs]: /share doesn't exist in container
+WARNING: Skipping mount /etc/site.conf [binds]: /etc/site.conf doesn't exist in container
+INFO:    unrelated line
+WARNING: Skipping mount /datastore [hostfs]: duplicate
+";
+        assert_eq!(
+            parse_skipped_mounts(stderr),
+            vec!["/datastore", "/share", "/etc/site.conf"]
+        );
+    }
+
+    #[test]
+    fn test_parse_skipped_mounts_ignores_non_absolute() {
+        let stderr = "WARNING: Skipping mount proc [kernel]: not supported\n";
+        assert!(parse_skipped_mounts(stderr).is_empty());
+    }
+
+    #[test]
+    fn test_bind_dest() {
+        assert_eq!(bind_dest("/data"), Some("/data".to_string()));
+        assert_eq!(bind_dest("/src:/dst"), Some("/dst".to_string()));
+        assert_eq!(bind_dest("/src:/dst:ro"), Some("/dst".to_string()));
+        assert_eq!(bind_dest("relative:also-relative"), None);
+    }
+
+    #[test]
+    fn test_mount_dest() {
+        assert_eq!(
+            mount_dest("type=bind,source=/data,dest=/mnt,ro"),
+            Some("/mnt".to_string())
+        );
+        assert_eq!(
+            mount_dest("type=bind,src=/a,destination=/b"),
+            Some("/b".to_string())
+        );
+        assert_eq!(mount_dest("type=bind,source=/data,ro"), None);
+    }
+
+    #[test]
+    fn test_seed_path_mirrors_host_dir() {
+        let sandbox = TempDir::new().unwrap();
+        // /tmp exists on the host and is a directory
+        let kind = seed_path(sandbox.path(), "/tmp").unwrap();
+        assert!(matches!(kind, Seeded::Dir));
+        assert!(sandbox.path().join("tmp").is_dir());
+    }
+
+    #[test]
+    fn test_seed_path_mirrors_host_file() {
+        let sandbox = TempDir::new().unwrap();
+        let host = TempDir::new().unwrap();
+        let host_file = host.path().join("site.conf");
+        std::fs::write(&host_file, b"x").unwrap();
+        let kind = seed_path(sandbox.path(), host_file.to_str().unwrap()).unwrap();
+        assert!(matches!(kind, Seeded::File));
+        let target = sandbox
+            .path()
+            .join(host_file.to_str().unwrap().trim_start_matches('/'));
+        assert!(target.is_file());
+    }
+
+    #[test]
+    fn test_seed_path_missing_host_creates_dir() {
+        let sandbox = TempDir::new().unwrap();
+        let kind = seed_path(sandbox.path(), "/nonexistent-host-path-xyz").unwrap();
+        assert!(matches!(kind, Seeded::MissingHostDir));
+        assert!(sandbox.path().join("nonexistent-host-path-xyz").is_dir());
+    }
+
+    #[test]
+    fn test_seed_path_existing_target_untouched() {
+        let sandbox = TempDir::new().unwrap();
+        std::fs::create_dir_all(sandbox.path().join("tmp")).unwrap();
+        let kind = seed_path(sandbox.path(), "/tmp").unwrap();
+        assert!(matches!(kind, Seeded::Exists));
+    }
+
+    #[test]
+    fn test_ensure_mount_points_covers_all_sources() {
+        let sandbox = TempDir::new().unwrap();
+        let cfg = crate::config::EnterConfig {
+            mount_points: vec!["/tmp".to_string()],
+            bind: vec!["/srcdir:/bounddir".to_string()],
+            mount: vec!["type=bind,source=/x,dest=/mountdir".to_string()],
+            ..crate::config::EnterConfig::default()
+        };
+        ensure_mount_points(sandbox.path(), &cfg, &["/flagdir".to_string()]);
+        assert!(sandbox.path().join("tmp").is_dir());
+        assert!(sandbox.path().join("bounddir").is_dir());
+        assert!(sandbox.path().join("mountdir").is_dir());
+        assert!(sandbox.path().join("flagdir").is_dir());
+    }
+
+    #[test]
+    fn test_seed_paths_never_panics_on_unwritable_sandbox() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        seed_paths(dir.path(), &["/tmp".to_string()]);
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
