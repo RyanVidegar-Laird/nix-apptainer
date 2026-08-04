@@ -12,6 +12,7 @@ mod lock;
 mod mounts;
 mod overlay;
 mod paths;
+mod progress;
 mod sandbox;
 mod sif;
 mod sifmeta;

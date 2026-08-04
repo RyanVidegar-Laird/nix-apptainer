@@ -107,8 +107,21 @@ pub fn run(flags: UpdateFlags) -> anyhow::Result<()> {
                 eprintln!("  The unpack will show a benign verification warning.");
             }
         }
-        println!("Re-unpacking sandbox directory (this can take several minutes)...");
-        sandbox::create_sandbox(&sys, &apptainer, &paths.sif_path, &paths.sandbox_dir)?;
+        let expected = crate::sifmeta::read_unpacked_bytes(&paths.sif_path);
+        match expected {
+            Some(bytes) => println!(
+                "Re-unpacking sandbox directory ({})...",
+                crate::util::human_size(bytes)
+            ),
+            None => println!("Re-unpacking sandbox directory (this can take several minutes)..."),
+        }
+        sandbox::create_sandbox(
+            &sys,
+            &apptainer,
+            &paths.sif_path,
+            &paths.sandbox_dir,
+            expected,
+        )?;
         // Re-unpack wipes the tree, so the configured mount points have to be
         // recreated. No re-discovery here — config.toml is the declarative record.
         crate::mounts::ensure_mount_points(&paths.sandbox_dir, &config.enter, &[]);

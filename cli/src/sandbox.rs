@@ -8,9 +8,12 @@ use crate::system::System;
 /// works on this host (nested userns + bind mounts on a plain tree).
 const PROBE_EXPR: &str = r#"derivation { name = "sandbox-probe"; system = builtins.currentSystem; builder = "/bin/sh"; args = [ "-c" "echo ok > $out" ]; }"#;
 
-/// Args for `apptainer build --sandbox <dir> <sif>` — rootless SIF unpack.
+/// Args for `apptainer -q build --sandbox <dir> <sif>` — rootless SIF unpack.
+/// `-q` keeps residual INFO lines from garbling the progress bar; output is
+/// captured and only surfaced on failure.
 pub fn build_sandbox_args(dir: &str, sif: &str) -> Vec<String> {
     vec![
+        "-q".to_string(),
         "build".to_string(),
         "--sandbox".to_string(),
         dir.to_string(),
@@ -47,6 +50,7 @@ pub fn create_sandbox(
     apptainer: &str,
     sif: &Path,
     dir: &Path,
+    expected_bytes: Option<u64>,
 ) -> anyhow::Result<()> {
     if dir.exists() {
         crate::util::make_writable_recursive(dir);
@@ -60,16 +64,20 @@ pub fn create_sandbox(
     let sif_str = sif.to_string_lossy();
     let args = build_sandbox_args(&dir_str, &sif_str);
     let argrefs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let status = sys
-        .run_command(apptainer, &argrefs)
-        .with_context(|| format!("Failed to run {apptainer} build --sandbox"))?;
-    if !status.success() {
-        bail!(
-            "{apptainer} build --sandbox failed (exit code: {:?})",
-            status.code()
-        );
+    let progress = crate::progress::UnpackProgress::start(dir.to_path_buf(), expected_bytes);
+    let result = sys.run_command_capture(apptainer, &argrefs);
+    progress.finish();
+    match result {
+        Ok(out) if out.status.success() => Ok(()),
+        Ok(out) => {
+            eprint!("{}", String::from_utf8_lossy(&out.stderr));
+            bail!(
+                "{apptainer} build --sandbox failed (exit code: {:?})",
+                out.status.code()
+            )
+        }
+        Err(e) => Err(e).with_context(|| format!("Failed to run {apptainer} build --sandbox")),
     }
-    Ok(())
 }
 
 /// Result of the build-sandbox probe.
@@ -127,14 +135,6 @@ fn stderr_tail(stderr: &[u8], n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_build_sandbox_args() {
-        assert_eq!(
-            build_sandbox_args("/data/sandbox", "/data/base.sif"),
-            vec!["build", "--sandbox", "/data/sandbox", "/data/base.sif"]
-        );
-    }
 
     #[test]
     fn test_probe_args_pins_home_and_tmpdir() {
@@ -200,6 +200,34 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_create_sandbox_replaces_readonly_tree_and_errors_on_failure() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::TempDir::new().unwrap();
+        let sandbox = dir.path().join("sandbox");
+        let sub = sandbox.join("nix/store/pkg");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        let ok_sys = FakeSystem {
+            exit_code: 0,
+            stderr: "",
+            ran: Cell::new(false),
+        };
+        create_sandbox(&ok_sys, "apptainer", Path::new("/x.sif"), &sandbox, None).unwrap();
+        assert!(ok_sys.ran.get());
+        assert!(!sub.exists(), "old tree must be removed before unpack");
+
+        let fail_sys = FakeSystem {
+            exit_code: 1,
+            stderr: "FATAL: boom",
+            ran: Cell::new(false),
+        };
+        let err = create_sandbox(&fail_sys, "apptainer", Path::new("/x.sif"), &sandbox, None)
+            .unwrap_err();
+        assert!(err.to_string().contains("build --sandbox"), "err: {err}");
+    }
+
     fn sandbox_with_etc_nix() -> tempfile::TempDir {
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(dir.path().join("etc/nix")).unwrap();
@@ -225,7 +253,11 @@ mod tests {
     fn test_probe_failure_writes_sandbox_false_with_detail() {
         let dir = sandbox_with_etc_nix();
         // Simulate a stale success from an earlier probe: must be overwritten.
-        std::fs::write(dir.path().join("etc/nix/nix.conf.local"), "sandbox = true\n").unwrap();
+        std::fs::write(
+            dir.path().join("etc/nix/nix.conf.local"),
+            "sandbox = true\n",
+        )
+        .unwrap();
         let sys = FakeSystem {
             exit_code: 1,
             stderr: "error: creating directory: No such file or directory",

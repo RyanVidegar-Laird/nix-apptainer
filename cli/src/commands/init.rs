@@ -65,6 +65,19 @@ fn fetch_sif(
     }
 }
 
+/// Announce the unpack, naming the size when the SIF carries the metadata.
+fn announce_unpack(expected: Option<u64>) {
+    match expected {
+        Some(bytes) => println!(
+            "Unpacking SIF into sandbox directory ({})...",
+            crate::util::human_size(bytes)
+        ),
+        None => {
+            println!("Unpacking SIF into sandbox directory (this can take several minutes)...")
+        }
+    }
+}
+
 /// Save configuration and state after successful init.
 fn save_init_state(
     paths: &AppPaths,
@@ -389,23 +402,25 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
                 if !should_recreate {
                     println!("Keeping existing sandbox.");
                 } else {
-                    println!(
-                        "Unpacking SIF into sandbox directory (this can take several minutes)..."
-                    );
+                    let expected = crate::sifmeta::read_unpacked_bytes(&paths.sif_path);
+                    announce_unpack(expected);
                     crate::sandbox::create_sandbox(
                         &sys,
                         &apptainer,
                         &paths.sif_path,
                         &paths.sandbox_dir,
+                        expected,
                     )?;
                 }
             } else {
-                println!("Unpacking SIF into sandbox directory (this can take several minutes)...");
+                let expected = crate::sifmeta::read_unpacked_bytes(&paths.sif_path);
+                announce_unpack(expected);
                 crate::sandbox::create_sandbox(
                     &sys,
                     &apptainer,
                     &paths.sif_path,
                     &paths.sandbox_dir,
+                    expected,
                 )?;
             }
         }
