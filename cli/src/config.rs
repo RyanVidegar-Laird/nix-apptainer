@@ -88,6 +88,12 @@ pub struct EnterConfig {
     /// Bind mounts in "src:dst" format
     #[serde(default)]
     pub bind: Vec<String>,
+    /// Long-form mounts passed verbatim to `apptainer --mount`
+    /// (e.g. "type=bind,source=/data,dest=/mnt,ro"). Unlike `bind`, this
+    /// syntax supports ro and paths containing colons. Requires
+    /// Apptainer >= 1.1 / SingularityCE >= 3.9.
+    #[serde(default)]
+    pub mount: Vec<String>,
     /// Suppress apptainer stderr warnings
     #[serde(default)]
     pub quiet: bool,
@@ -95,6 +101,12 @@ pub struct EnterConfig {
     /// When false, the container uses an isolated home directory in the overlay.
     #[serde(default)]
     pub mount_home: bool,
+    /// Container-side paths to pre-create in the sandbox so site-configured
+    /// apptainer binds (bind path / hostfs) have mount points. We never
+    /// mount these ourselves — the site's apptainer.conf does. Only used in
+    /// sandbox mode; overlay modes fabricate mount points at runtime.
+    #[serde(default)]
+    pub mount_points: Vec<String>,
     /// TMPDIR to set inside the container. Empty (the default) inherits
     /// whatever the host exports, which is only safe when that path is also
     /// visible in the container — legacy `nix-build` creates a scratch dir
@@ -133,7 +145,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::{GpuMode, OverlayType};
+    use super::{EnterConfig, GpuMode, OverlayType};
     use std::io::Write;
     use tempfile::NamedTempFile;
 
@@ -172,6 +184,57 @@ quiet = true
         .unwrap();
         let config = Config::load(f.path()).unwrap();
         assert!(config.enter.quiet);
+    }
+
+    #[test]
+    fn test_mount_from_toml() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(
+            f,
+            r#"
+[enter]
+mount = ["type=bind,source=/data,dest=/mnt,ro"]
+"#
+        )
+        .unwrap();
+        let config = Config::load(f.path()).unwrap();
+        assert_eq!(
+            config.enter.mount,
+            vec!["type=bind,source=/data,dest=/mnt,ro"]
+        );
+    }
+
+    #[test]
+    fn test_mount_default_empty() {
+        assert!(Config::default().enter.mount.is_empty());
+    }
+
+    #[test]
+    fn test_mount_points_from_toml() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(
+            f,
+            r#"
+[enter]
+mount_points = ["/datastore", "/share"]
+"#
+        )
+        .unwrap();
+        let config = Config::load(f.path()).unwrap();
+        assert_eq!(config.enter.mount_points, vec!["/datastore", "/share"]);
+    }
+
+    #[test]
+    fn test_mount_points_roundtrip() {
+        let config = Config {
+            enter: EnterConfig {
+                mount_points: vec!["/datastore".to_string()],
+                ..EnterConfig::default()
+            },
+            ..Config::default()
+        };
+        let s = toml::to_string(&config).unwrap();
+        assert!(s.contains("mount_points"), "serialized: {s}");
     }
 
     #[test]

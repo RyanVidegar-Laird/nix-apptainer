@@ -89,6 +89,10 @@ pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<St
         args.push("--bind".to_string());
         args.push(b.clone());
     }
+    for m in &opts.config.enter.mount {
+        args.push("--mount".to_string());
+        args.push(m.clone());
+    }
 
     // Clear NixOS profile guards leaked from the host so /etc/profile
     // re-sources set-environment (which adds $HOME/.nix-profile/bin to PATH)
@@ -295,6 +299,26 @@ mod tests {
         assert_eq!(bind_count, 2);
         assert!(args.contains(&"/data:/data".to_string()));
         assert!(args.contains(&"/scratch:/scratch".to_string()));
+    }
+
+    #[test]
+    fn test_mount_entries_passed_verbatim() {
+        let paths = test_paths();
+        let overlay = test_overlay();
+        let mut config = test_config();
+        config.enter.mount = vec!["type=bind,source=/data,dest=/mnt,ro".to_string()];
+        let opts = ContainerOpts {
+            target: overlay_target(&paths, &overlay),
+            config: &config,
+            nv: false,
+            rocm: false,
+            bind: &[],
+            passthrough: &[],
+            quiet: false,
+        };
+        let args = build_apptainer_args(&opts, ContainerMode::Run);
+        let i = args.iter().position(|a| a == "--mount").unwrap();
+        assert_eq!(args[i + 1], "type=bind,source=/data,dest=/mnt,ro");
     }
 
     #[test]
