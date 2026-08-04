@@ -42,9 +42,9 @@ impl Default for SifConfig {
 #[derive(Debug, Serialize, Deserialize, Default, PartialEq, Eq, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum OverlayType {
-    #[default]
     Directory,
     Ext3,
+    #[default]
     Sandbox,
 }
 
@@ -258,9 +258,9 @@ tmpdir = "/scratch/me/tmp"
     }
 
     #[test]
-    fn test_overlay_type_default_directory() {
+    fn test_overlay_type_default_sandbox() {
         let config = Config::default();
-        assert_eq!(config.overlay.overlay_type, OverlayType::Directory);
+        assert_eq!(config.overlay.overlay_type, OverlayType::Sandbox);
     }
 
     #[test]

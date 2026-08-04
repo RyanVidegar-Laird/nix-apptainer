@@ -118,17 +118,17 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
             "ext3" => OverlayType::Ext3,
             "sandbox" => OverlayType::Sandbox,
             _ => anyhow::bail!(
-                "Invalid overlay type '{}'. Use 'dir', 'ext3', or 'sandbox'.",
+                "Invalid storage type '{}'. Use 'sandbox' (default), 'dir', or 'ext3'.",
                 t
             ),
         }
     } else if flags.yes {
-        OverlayType::Directory
+        OverlayType::Sandbox
     } else {
         let choices = vec![
-            "Directory overlay (recommended \u{2014} best performance)",
-            "ext3 image (sparse, fixed capacity; single file \u{2014} gentler on parallel filesystems)",
-            "Sandbox directory (no overlay/FUSE \u{2014} for old apptainer; enables the Nix build sandbox)",
+            "Sandbox directory (recommended \u{2014} no overlay/FUSE overhead, enables the Nix build sandbox; needs ~10 GB)",
+            "Directory overlay (smaller footprint \u{2014} ~2 GB; needs working fuse-overlayfs)",
+            "ext3 image (single file \u{2014} gentler on inode-constrained parallel filesystems)",
         ];
         let selection = Select::new()
             .with_prompt("Storage type")
@@ -136,9 +136,9 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
             .default(0)
             .interact()?;
         match selection {
-            0 => OverlayType::Directory,
-            1 => OverlayType::Ext3,
-            2 => OverlayType::Sandbox,
+            0 => OverlayType::Sandbox,
+            1 => OverlayType::Directory,
+            2 => OverlayType::Ext3,
             _ => unreachable!(),
         }
     };

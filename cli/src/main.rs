@@ -39,7 +39,7 @@ enum Commands {
         /// Overlay size in MB (default: 51200)
         #[arg(long)]
         overlay_size: Option<u64>,
-        /// Overlay type: "dir" (default), "ext3" image, or "sandbox" directory
+        /// Storage type: "sandbox" directory (default), "dir" overlay, or "ext3" image
         #[arg(long)]
         overlay_type: Option<String>,
         /// Directory to store all data (overrides XDG paths)
