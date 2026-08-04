@@ -331,6 +331,7 @@ pkgs.testers.runNixOSTest {
             extra_env="export TMPDIR=/vmscratch && ",
         ))
         assert "Unpacked " in out, f"expected unpack summary line in: {out}"
+        assert "Unpacked 0 B" not in out, f"unpack measured nothing: {out}"
         machine.succeed(as_testuser(
             "test -d $NIX_APPTAINER_HOME/sandbox/nix/store",
             nix_apptainer_home=P6_HOME,
