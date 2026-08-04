@@ -249,12 +249,21 @@ pub fn import_signing_key(
     let out = sys.run_command_capture(apptainer, &["key", "import", key_str.as_ref()])?;
     let _ = fs::remove_file(&key_path);
     if !out.status.success() {
-        bail!(
-            "apptainer key import failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        // Re-running init re-imports the same key; apptainer treats that as an
+        // error but the postcondition we want (key present) already holds.
+        if key_already_imported(&stderr) {
+            return Ok(());
+        }
+        bail!("apptainer key import failed: {}", stderr.trim());
     }
     Ok(())
+}
+
+/// Whether a failed `apptainer key import` merely means the key was already
+/// in the keyring — a success for our purposes.
+fn key_already_imported(stderr: &str) -> bool {
+    stderr.contains("already belongs to the keyring")
 }
 
 /// Verify a SHA256 digest against a SHA256SUMS file.
@@ -435,6 +444,18 @@ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  nix-apptainer-
         let info = parse_release_response(&json).unwrap();
         assert!(info.sha256_url.is_none());
         assert!(info.signing_key_url.is_none());
+    }
+
+    #[test]
+    fn test_key_already_imported_is_not_an_error() {
+        // Verbatim from a second `nix-apptainer init` run.
+        assert!(key_already_imported(
+            "ERROR:   key import command failed: the key with fingerprint \
+             EC2BC11B5EC4CD4EAF7825FB3A85D8895AED080E already belongs to the keyring"
+        ));
+        assert!(!key_already_imported(
+            "ERROR:   key import command failed: unable to open: no such file"
+        ));
     }
 
     #[test]

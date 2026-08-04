@@ -8,17 +8,43 @@
 
 use std::path::Path;
 
-/// Extract container paths from apptainer "Skipping mount <path> [...]"
-/// warnings. Deduplicates, preserves order, absolute paths only.
+/// Container path named by one apptainer mount-failure line, if any.
+///
+/// Apptainer reports a missing mount point three different ways depending on
+/// how the bind was configured and whether a layer is available (formats
+/// taken verbatim from its `starter` binary):
+///
+///   Skipping mount %s [%s]: %s doesn't exist in container
+///   By using --writable, Apptainer can't create %s destination automatically…
+///   …while mounting %s: destination %s doesn't exist in container
+fn missing_mount_path(line: &str) -> Option<&str> {
+    // Ordered: the "Skipping mount" line also ends in "doesn't exist in
+    // container", so it must be matched before the generic destination form.
+    if let Some(rest) = line.split("Skipping mount ").nth(1) {
+        return rest.split_whitespace().next();
+    }
+    if let Some(rest) = line.split("can't create ").nth(1) {
+        return rest.split_whitespace().next();
+    }
+    if line.contains("doesn't exist in container")
+        && let Some(rest) = line.split("destination ").nth(1)
+    {
+        return rest.split_whitespace().next();
+    }
+    None
+}
+
+/// Extract container paths apptainer reported as missing mount points.
+/// Deduplicates, preserves order, absolute paths only.
 pub fn parse_skipped_mounts(stderr: &str) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
     for line in stderr.lines() {
-        if let Some(rest) = line.split("Skipping mount ").nth(1) {
-            let path = rest.split_whitespace().next().unwrap_or("");
-            if path.starts_with('/') && seen.insert(path.to_string()) {
-                out.push(path.to_string());
-            }
+        let Some(path) = missing_mount_path(line) else {
+            continue;
+        };
+        if path.starts_with('/') && seen.insert(path.to_string()) {
+            out.push(path.to_string());
         }
     }
     out
@@ -104,11 +130,19 @@ pub fn discover_missing_mount_points(
     apptainer: &str,
     sandbox_dir: &Path,
 ) -> Vec<String> {
+    // --writable is essential, not incidental: without it apptainer stacks an
+    // overlay/underlay over the sandbox and silently *fabricates* every
+    // missing mount point, so the probe reports nothing to create. Real
+    // sessions run --writable, where it cannot, and warns instead.
+    //
     // /bin/sh, not /bin/true: the image ships a minimal /bin. Apptainer emits
     // its mount warnings while setting up the container, before exec'ing the
     // command, but a missing binary would make the failure look like ours.
     let dir = sandbox_dir.to_string_lossy();
-    match sys.run_command_capture(apptainer, &["exec", dir.as_ref(), "/bin/sh", "-c", "true"]) {
+    match sys.run_command_capture(
+        apptainer,
+        &["exec", "--writable", dir.as_ref(), "/bin/sh", "-c", "true"],
+    ) {
         Ok(out) => parse_skipped_mounts(&String::from_utf8_lossy(&out.stderr)),
         Err(_) => Vec::new(),
     }
@@ -147,6 +181,25 @@ WARNING: Skipping mount /datastore [hostfs]: duplicate
             parse_skipped_mounts(stderr),
             vec!["/datastore", "/share", "/etc/site.conf"]
         );
+    }
+
+    #[test]
+    fn test_parse_writable_cannot_create_destination() {
+        // Verbatim from apptainer's starter binary. This is what a --writable
+        // session emits when no layer is available to fabricate the target.
+        let stderr = "\
+WARNING: By using --writable, Apptainer can't create /datastore destination automatically without overlay or underlay
+WARNING: No layer in use (overlay or underlay), check your configuration, Apptainer can't create /share destination automatically without overlay or underlay
+";
+        assert_eq!(parse_skipped_mounts(stderr), vec!["/datastore", "/share"]);
+    }
+
+    #[test]
+    fn test_parse_fatal_destination_form() {
+        let stderr = "FATAL:   container creation failed: mount hook function failure: \
+mount /host/src->/sitedata error: while mounting /host/src: \
+destination /sitedata doesn't exist in container\n";
+        assert_eq!(parse_skipped_mounts(stderr), vec!["/sitedata"]);
     }
 
     #[test]

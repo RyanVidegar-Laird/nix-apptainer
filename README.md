@@ -99,10 +99,11 @@ detecting the buggy bundled fuse-overlayfs on old apptainer installs.
 ### Site bind mounts in sandbox mode
 
 In sandbox mode apptainer cannot create missing mount points, so binds from
-the site's apptainer.conf (e.g. `/datastore`, `/share` on many clusters) are
-silently skipped and that data is invisible in the container. `init`
-detects these (from apptainer's own "Skipping mount" warnings), lets you
-pick which to create, and records them:
+the site's `apptainer.conf` are skipped and that data is invisible in the
+container. `init` discovers these by launching a throwaway `--writable`
+container and reading apptainer's own mount warnings — nothing is hardcoded,
+the list comes entirely from your site's configuration — then lets you pick
+which to create and records them (paths below are illustrative):
 
 ```toml
 [enter]
