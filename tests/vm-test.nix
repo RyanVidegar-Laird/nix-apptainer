@@ -315,13 +315,22 @@ pkgs.testers.runNixOSTest {
     # ------------------------------------------------------------------
     P6_HOME = "/home/testuser/.nix-apptainer-sandbox"
 
-    with subtest("Phase 6: init with sandbox mode"):
-        machine.succeed(as_testuser(
+    with subtest("Phase 6: init with sandbox mode (hostile TMPDIR)"):
+        # The cluster failure mode: TMPDIR names a real host path that is
+        # NOT present inside the image, so a container-side nix-build dies
+        # creating its scratch dir. It must exist on the host — apptainer's
+        # own build machinery needs a usable TMPDIR too. The probe pins its
+        # own TMPDIR, so the "probe enabled the Nix build sandbox" subtest
+        # below is the regression test for the spurious "unavailable".
+        machine.succeed("mkdir -p /vmscratch && chmod 1777 /vmscratch")
+        out = machine.succeed(as_testuser(
             "nix-apptainer init --yes "
             "--sif /etc/test/base-nixos.sif "
             "--overlay-type sandbox",
             nix_apptainer_home=P6_HOME,
+            extra_env="export TMPDIR=/vmscratch && ",
         ))
+        assert "Unpacked " in out, f"expected unpack summary line in: {out}"
         machine.succeed(as_testuser(
             "test -d $NIX_APPTAINER_HOME/sandbox/nix/store",
             nix_apptainer_home=P6_HOME,
@@ -343,6 +352,28 @@ pkgs.testers.runNixOSTest {
     with subtest("Phase 6: status reports sandbox mode"):
         out = machine.succeed(as_testuser("nix-apptainer status", nix_apptainer_home=P6_HOME))
         assert "sandbox" in out.lower(), f"status missing 'sandbox': {out}"
+
+    with subtest("Phase 6: mount_points are seeded before launch"):
+        # In --writable mode apptainer cannot create a missing mount point,
+        # so the CLI must materialize configured ones before every launch.
+        # Edited as root to dodge the nested quoting in as_testuser; init
+        # already wrote a `mount_points = []` line, so replace rather than
+        # append (a duplicate TOML key would fail to parse).
+        machine.succeed("mkdir -p /vmdata")
+        machine.succeed(
+            "sed -i 's|^mount_points = .*|mount_points = [\"/vmdata\"]|' "
+            f"{P6_HOME}/config.toml"
+        )
+        machine.succeed(f"chown testuser {P6_HOME}/config.toml")
+        machine.succeed(f"grep -q /vmdata {P6_HOME}/config.toml")
+        machine.succeed(as_testuser(
+            'nix-apptainer exec -- /bin/sh -c "true"',
+            nix_apptainer_home=P6_HOME,
+        ))
+        machine.succeed(as_testuser(
+            "test -d $NIX_APPTAINER_HOME/sandbox/vmdata",
+            nix_apptainer_home=P6_HOME,
+        ))
 
     with subtest("Phase 6: seed hello build closure into container store"):
         # Both the build inputs AND the nixpkgs source tree the expression

@@ -104,8 +104,11 @@ pub fn discover_missing_mount_points(
     apptainer: &str,
     sandbox_dir: &Path,
 ) -> Vec<String> {
+    // /bin/sh, not /bin/true: the image ships a minimal /bin. Apptainer emits
+    // its mount warnings while setting up the container, before exec'ing the
+    // command, but a missing binary would make the failure look like ours.
     let dir = sandbox_dir.to_string_lossy();
-    match sys.run_command_capture(apptainer, &["exec", dir.as_ref(), "/bin/true"]) {
+    match sys.run_command_capture(apptainer, &["exec", dir.as_ref(), "/bin/sh", "-c", "true"]) {
         Ok(out) => parse_skipped_mounts(&String::from_utf8_lossy(&out.stderr)),
         Err(_) => Vec::new(),
     }
@@ -234,11 +237,7 @@ WARNING: Skipping mount /datastore [hostfs]: duplicate
         fn run_command(&self, _: &str, _: &[&str]) -> anyhow::Result<std::process::ExitStatus> {
             unimplemented!("discovery uses run_command_capture")
         }
-        fn run_command_capture(
-            &self,
-            _: &str,
-            _: &[&str],
-        ) -> anyhow::Result<std::process::Output> {
+        fn run_command_capture(&self, _: &str, _: &[&str]) -> anyhow::Result<std::process::Output> {
             use std::os::unix::process::ExitStatusExt;
             Ok(std::process::Output {
                 status: std::process::ExitStatus::from_raw(0),
