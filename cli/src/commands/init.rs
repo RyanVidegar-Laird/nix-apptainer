@@ -416,10 +416,19 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
             // DB is baked into the image and now on a plain filesystem — no
             // pre-seed needed. Probe whether the Nix build sandbox works here.
             println!("Probing Nix build sandbox support...");
-            if crate::sandbox::probe_and_enable_nix_sandbox(&sys, &apptainer, &paths.sandbox_dir)? {
+            let outcome =
+                crate::sandbox::probe_and_enable_nix_sandbox(&sys, &apptainer, &paths.sandbox_dir)?;
+            if outcome.enabled {
                 println!("  Works \u{2014} enabled (sandbox = true) for this installation.");
             } else {
                 println!("  Unavailable \u{2014} builds will run unsandboxed (sandbox = false).");
+                if let Some(detail) = outcome.detail {
+                    println!("  Probe output (failure can be environmental; a re-run of");
+                    println!("  `nix-apptainer init` keeping the existing sandbox re-probes):");
+                    for line in detail.lines() {
+                        println!("    {line}");
+                    }
+                }
             }
         }
     }

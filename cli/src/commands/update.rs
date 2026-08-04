@@ -103,10 +103,17 @@ pub fn run(flags: UpdateFlags) -> anyhow::Result<()> {
         println!("Re-unpacking sandbox directory (this can take several minutes)...");
         sandbox::create_sandbox(&sys, &apptainer, &paths.sif_path, &paths.sandbox_dir)?;
         println!("Probing Nix build sandbox support...");
-        if sandbox::probe_and_enable_nix_sandbox(&sys, &apptainer, &paths.sandbox_dir)? {
+        let outcome = sandbox::probe_and_enable_nix_sandbox(&sys, &apptainer, &paths.sandbox_dir)?;
+        if outcome.enabled {
             println!("  Works \u{2014} enabled (sandbox = true).");
         } else {
-            println!("  Unavailable \u{2014} builds will run unsandboxed.");
+            println!("  Unavailable \u{2014} builds will run unsandboxed (sandbox = false).");
+            if let Some(detail) = outcome.detail {
+                println!("  Probe output (failure can be environmental):");
+                for line in detail.lines() {
+                    println!("    {line}");
+                }
+            }
         }
     }
 
