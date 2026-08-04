@@ -43,6 +43,10 @@ let
         ];
         __structuredAttrs = true;
         unsafeDiscardReferences.out = true;
+        outputs = [
+          "out"
+          "size"
+        ];
       }
       ''
         # Stage sandbox contents so mksquashfs places the rootfs at the
@@ -79,6 +83,11 @@ let
         # util-linux hardlink only merges files with equal content, mode,
         # owner, and mtime — safe for a store tree (mtimes are all epoch).
         hardlink rootfs/nix/store
+
+        # On-disk bytes of the staged tree (post-hardlink, so duplicates
+        # count once — matching what a sandbox-mode unsquashfs writes).
+        # Consumed by the CLI's unpack progress bar via SIF metadata.
+        du -sB1 rootfs | cut -f1 > "$size"
 
         mksquashfs rootfs $out \
           -all-root \
@@ -117,4 +126,14 @@ runCommand "${name}.sif"
       --groupid 1 \
       "$out" \
       ${squashfs}
+
+    # Embed the unpacked size so the CLI can render a real progress bar
+    # during sandbox unpack. --datatype 6 = GenericJSON; --groupid 1 keeps
+    # it inside the signed object group (signing happens in release CI).
+    printf '{"unpacked_bytes": %s}' "$(cat ${squashfs.size})" > meta.json
+    apptainer sif add \
+      --datatype 6 \
+      --groupid 1 \
+      "$out" \
+      meta.json
   ''

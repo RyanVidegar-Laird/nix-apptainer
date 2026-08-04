@@ -89,6 +89,21 @@ runCommand "nix-apptainer-test-sif"
     done
 
     echo ""
+    # --- Unpacked-size metadata object ---
+    echo ""
+    echo "Checking unpacked-size metadata..."
+    apptainer sif list "$sif" | grep -qi "json" || fail "no GenericJSON metadata object in SIF"
+    meta=$(apptainer sif dump 2 "$sif")
+    echo "  metadata: $meta"
+    embedded=$(echo "$meta" | tr -dc '0-9')
+    actual=$(du -sB1 extracted | cut -f1)
+    low=$((actual * 80 / 100))
+    high=$((actual * 120 / 100))
+    [ "$embedded" -ge "$low" ] && [ "$embedded" -le "$high" ] \
+      || fail "unpacked_bytes $embedded outside 20% of extracted tree size $actual"
+    pass "unpacked_bytes metadata plausible ($embedded vs extracted $actual)"
+
+    echo ""
     echo "All SIF content checks passed."
     touch $out
   ''
