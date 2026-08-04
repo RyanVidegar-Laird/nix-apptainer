@@ -95,6 +95,14 @@ pub struct EnterConfig {
     /// When false, the container uses an isolated home directory in the overlay.
     #[serde(default)]
     pub mount_home: bool,
+    /// TMPDIR to set inside the container. Empty (the default) inherits
+    /// whatever the host exports, which is only safe when that path is also
+    /// visible in the container — legacy `nix-build` creates a scratch dir
+    /// from $TMPDIR before any build starts, and `build-dir` cannot rescue
+    /// an unbound one. Cluster scratch paths need a matching `bind` (and,
+    /// in sandbox mode, a `mount_points` entry).
+    #[serde(default)]
+    pub tmpdir: String,
 }
 
 impl Config {
@@ -164,6 +172,26 @@ quiet = true
         .unwrap();
         let config = Config::load(f.path()).unwrap();
         assert!(config.enter.quiet);
+    }
+
+    #[test]
+    fn test_tmpdir_default_is_inherit() {
+        assert!(Config::default().enter.tmpdir.is_empty());
+    }
+
+    #[test]
+    fn test_tmpdir_from_toml() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(
+            f,
+            r#"
+[enter]
+tmpdir = "/scratch/me/tmp"
+"#
+        )
+        .unwrap();
+        let config = Config::load(f.path()).unwrap();
+        assert_eq!(config.enter.tmpdir, "/scratch/me/tmp");
     }
 
     #[test]

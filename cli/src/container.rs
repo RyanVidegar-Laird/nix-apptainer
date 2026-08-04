@@ -101,6 +101,16 @@ pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<St
         args.push(format!("{var}="));
     }
 
+    // Pin TMPDIR when configured. Cluster TMPDIRs often point at site
+    // filesystems that may not be mounted in the container (sandbox mode
+    // skips binds whose mount points are missing), and legacy nix-build
+    // creates a client-side scratch dir from $TMPDIR before any build
+    // starts — `build-dir` cannot rescue it. Empty means inherit the host's.
+    if !opts.config.enter.tmpdir.is_empty() {
+        args.push("--env".to_string());
+        args.push(format!("TMPDIR={}", opts.config.enter.tmpdir));
+    }
+
     // Passthrough args
     args.extend(opts.passthrough.iter().cloned());
 
@@ -389,6 +399,58 @@ mod tests {
         };
         let args = build_apptainer_args(&opts, ContainerMode::Run);
         assert!(!args.contains(&"--no-home".to_string()));
+    }
+
+    #[test]
+    fn test_tmpdir_inherited_by_default() {
+        let paths = test_paths();
+        let overlay = test_overlay();
+        let config = test_config();
+        let opts = ContainerOpts {
+            target: overlay_target(&paths, &overlay),
+            config: &config,
+            nv: false,
+            rocm: false,
+            bind: &[],
+            passthrough: &[],
+            quiet: false,
+        };
+        let args = build_apptainer_args(&opts, ContainerMode::Run);
+        assert!(
+            !args.iter().any(|a| a.starts_with("TMPDIR=")),
+            "an unset enter.tmpdir must leave the host's TMPDIR alone"
+        );
+    }
+
+    #[test]
+    fn test_tmpdir_pinned_all_modes_when_configured() {
+        let paths = test_paths();
+        let overlay = test_overlay();
+        let mut config = test_config();
+        config.enter.tmpdir = "/scratch/me/tmp".to_string();
+        let opts = ContainerOpts {
+            target: overlay_target(&paths, &overlay),
+            config: &config,
+            nv: false,
+            rocm: false,
+            bind: &[],
+            passthrough: &[],
+            quiet: false,
+        };
+        let args = build_apptainer_args(&opts, ContainerMode::Run);
+        assert!(args.contains(&"TMPDIR=/scratch/me/tmp".to_string()));
+        let dir = PathBuf::from("/data/na/sandbox");
+        let opts = ContainerOpts {
+            target: ContainerTarget::Sandbox { dir: &dir },
+            config: &config,
+            nv: false,
+            rocm: false,
+            bind: &[],
+            passthrough: &[],
+            quiet: false,
+        };
+        let args = build_apptainer_args(&opts, ContainerMode::Exec);
+        assert!(args.contains(&"TMPDIR=/scratch/me/tmp".to_string()));
     }
 
     #[test]

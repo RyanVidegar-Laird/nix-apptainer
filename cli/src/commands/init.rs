@@ -70,6 +70,7 @@ fn save_init_state(
     ext3_size_mb: u64,
     version: &str,
     hash: Sha256Digest,
+    enter: crate::config::EnterConfig,
 ) -> anyhow::Result<()> {
     let config_source = match sif_source {
         SifSource::GitHub { repo } => ("github".to_string(), repo.clone()),
@@ -85,7 +86,7 @@ fn save_init_state(
             overlay_type: overlay_type.clone(),
             ext3_size_mb,
         },
-        enter: crate::config::EnterConfig::default(),
+        enter,
     };
     config.save(&paths.config_file)?;
 
@@ -201,6 +202,52 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     };
     let disk_check = checks::check_disk_space(&sys, &paths.data_dir, min_gb);
     println!("  Disk space: {}", disk_check.message);
+    println!();
+
+    // --- Container TMPDIR ---
+    // Prepopulated from the host's $TMPDIR so cluster users see the value
+    // they actually have. Keeping it only works if that path is visible
+    // inside the container, so the alternative is spelled out here rather
+    // than discovered later as a mid-build nix-build failure.
+    let tmpdir = if flags.yes {
+        String::new()
+    } else {
+        let host_tmpdir = std::env::var("TMPDIR").unwrap_or_default();
+        let inherit_label = if host_tmpdir.is_empty() {
+            "Inherit from the host (currently unset)".to_string()
+        } else {
+            format!("Inherit from the host (currently {host_tmpdir})")
+        };
+        println!("TMPDIR must name a path the container can see: nix-build creates a");
+        println!("scratch directory there before any build starts. A host scratch path");
+        println!("needs a matching `bind` (and, in sandbox mode, a `mount_points` entry).");
+        let choices = vec![
+            inherit_label,
+            "/tmp inside the container (always present)".to_string(),
+            "Custom path".to_string(),
+        ];
+        let selection = Select::new()
+            .with_prompt("TMPDIR inside the container")
+            .items(&choices)
+            .default(0)
+            .interact()?;
+        match selection {
+            0 => String::new(),
+            1 => "/tmp".to_string(),
+            2 => {
+                let custom: String = Input::new()
+                    .with_prompt("Enter TMPDIR path")
+                    .with_initial_text(if host_tmpdir.is_empty() {
+                        "/tmp".to_string()
+                    } else {
+                        host_tmpdir
+                    })
+                    .interact_text()?;
+                custom.trim().to_string()
+            }
+            _ => unreachable!(),
+        }
+    };
     println!();
 
     // --- SIF source ---
@@ -385,6 +432,10 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
         ext3_size_mb,
         &version,
         hash,
+        crate::config::EnterConfig {
+            tmpdir,
+            ..crate::config::EnterConfig::default()
+        },
     )?;
 
     println!();
