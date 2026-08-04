@@ -350,6 +350,13 @@ mod tests {
         fn run_command(&self, _program: &str, _args: &[&str]) -> anyhow::Result<ExitStatus> {
             unimplemented!("not used in check tests")
         }
+        fn run_command_capture(
+            &self,
+            _program: &str,
+            _args: &[&str],
+        ) -> anyhow::Result<std::process::Output> {
+            unimplemented!("not used in check tests")
+        }
         fn find_command(&self, name: &str) -> Option<String> {
             self.commands.get(name).map(|_| name.to_string())
         }

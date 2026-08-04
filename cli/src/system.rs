@@ -8,6 +8,13 @@ pub trait System {
     /// Run an external command, return its exit status.
     fn run_command(&self, program: &str, args: &[&str])
     -> anyhow::Result<std::process::ExitStatus>;
+    /// Run an external command, capturing stdout/stderr instead of
+    /// inheriting the terminal. Use for output we parse or show on failure.
+    fn run_command_capture(
+        &self,
+        program: &str,
+        args: &[&str],
+    ) -> anyhow::Result<std::process::Output>;
     /// Check if a command exists on PATH. Returns the command name if found.
     fn find_command(&self, name: &str) -> Option<String>;
     /// Run a command with a version flag and return stdout if successful.
@@ -36,6 +43,14 @@ impl System for RealSystem {
             .args(args)
             .status()
             .map_err(Into::into)
+    }
+
+    fn run_command_capture(
+        &self,
+        program: &str,
+        args: &[&str],
+    ) -> anyhow::Result<std::process::Output> {
+        Command::new(program).args(args).output().map_err(Into::into)
     }
 
     fn find_command(&self, name: &str) -> Option<String> {
@@ -76,5 +91,28 @@ impl System for RealSystem {
     fn filesystem_magic(&self, path: &Path) -> Option<i64> {
         let stat = nix::sys::statfs::statfs(path).ok()?;
         Some(stat.filesystem_type().0 as i64)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_run_command_capture_stdout_and_status() {
+        let sys = RealSystem;
+        let out = sys
+            .run_command_capture("sh", &["-c", "echo captured-ok; echo err-line >&2"])
+            .unwrap();
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "captured-ok");
+        assert_eq!(String::from_utf8_lossy(&out.stderr).trim(), "err-line");
+    }
+
+    #[test]
+    fn test_run_command_capture_failure_status() {
+        let sys = RealSystem;
+        let out = sys.run_command_capture("sh", &["-c", "exit 3"]).unwrap();
+        assert!(!out.status.success());
     }
 }
