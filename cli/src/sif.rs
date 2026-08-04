@@ -210,6 +210,28 @@ pub fn copy_local_sif(src: &str, dest: &Path) -> anyhow::Result<Sha256Digest> {
     Ok(Sha256Digest::from_hasher(hasher))
 }
 
+/// Download the release SIF and verify it against the release's SHA256SUMS
+/// (when present). Prints progress; bails on mismatch.
+pub fn download_and_verify(release: &ReleaseInfo, dest: &Path) -> anyhow::Result<Sha256Digest> {
+    let hash = download_file(&release.sif_url, dest)?;
+    println!("  SHA256: {hash}");
+    if let Some(ref sha_url) = release.sha256_url {
+        let expected = reqwest::blocking::Client::builder()
+            .user_agent("nix-apptainer")
+            .https_only(true)
+            .build()?
+            .get(sha_url)
+            .send()?
+            .text()?;
+        if verify_sha256(&hash, &expected, Some(&release.sif_asset_name)) {
+            println!("  SHA256 verified \u{2713}");
+        } else {
+            bail!("SHA256 mismatch! Expected: {expected}, Got: {hash}");
+        }
+    }
+    Ok(hash)
+}
+
 /// Download the release's signing key and import it into apptainer's local
 /// keyring so `apptainer build --sandbox` can verify the SIF's embedded
 /// signature (it otherwise 404s against a keyserver and warns). Callers

@@ -51,33 +51,43 @@ pub fn overlay_usage_warning(
     }
 }
 
-/// Recursively add owner-write permissions so read-only nix store paths can be deleted.
-pub fn make_writable_recursive(path: &std::path::Path) {
+/// Add owner-write permission to `path` if it lacks it. Best-effort.
+fn add_owner_write(path: &std::path::Path, meta: &std::fs::Metadata) {
     use std::os::unix::fs::PermissionsExt;
-    if let Ok(entries) = std::fs::read_dir(path) {
+    let mut perms = meta.permissions();
+    let mode = perms.mode();
+    if mode & 0o200 == 0 {
+        perms.set_mode(mode | 0o200);
+        let _ = std::fs::set_permissions(path, perms);
+    }
+}
+
+/// Recursively add owner-write permission so read-only Nix store paths can
+/// be deleted. Iterative: a symlink loop would make the recursive form blow
+/// the stack. Best-effort by design — errors surface as the caller's
+/// remove_dir_all failure, with a better message than we could synthesize.
+pub fn make_writable_recursive(path: &std::path::Path) {
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        if let Ok(meta) = dir.symlink_metadata() {
+            add_owner_write(&dir, &meta);
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let p = entry.path();
-            if let Ok(meta) = p.symlink_metadata()
-                && !meta.is_symlink()
-            {
-                let mut perms = meta.permissions();
-                let mode = perms.mode();
-                if mode & 0o200 == 0 {
-                    perms.set_mode(mode | 0o200);
-                    let _ = std::fs::set_permissions(&p, perms);
-                }
-                if meta.is_dir() {
-                    make_writable_recursive(&p);
-                }
+            let Ok(meta) = p.symlink_metadata() else {
+                continue;
+            };
+            if meta.is_symlink() {
+                continue;
             }
-        }
-    }
-    if let Ok(meta) = std::fs::metadata(path) {
-        let mut perms = meta.permissions();
-        let mode = perms.mode();
-        if mode & 0o200 == 0 {
-            perms.set_mode(mode | 0o200);
-            let _ = std::fs::set_permissions(path, perms);
+            if meta.is_dir() {
+                stack.push(p);
+            } else {
+                add_owner_write(&p, &meta);
+            }
         }
     }
 }
@@ -120,6 +130,20 @@ mod tests {
     fn test_overlay_warning_zero_allocated() {
         let msg = overlay_usage_warning(0, 0, 80);
         assert!(msg.is_none());
+    }
+
+    #[test]
+    fn test_make_writable_recursive_read_only_tree() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::TempDir::new().unwrap();
+        let sub = dir.path().join("store/pkg");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("bin"), b"x").unwrap();
+        std::fs::set_permissions(sub.join("bin"), std::fs::Permissions::from_mode(0o444)).unwrap();
+        std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o555)).unwrap();
+        make_writable_recursive(dir.path());
+        // The tree must now be deletable — the whole point of the pass.
+        std::fs::remove_dir_all(dir.path().join("store")).unwrap();
     }
 
     #[test]

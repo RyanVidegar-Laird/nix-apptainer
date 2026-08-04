@@ -11,6 +11,28 @@ use crate::paths::AppPaths;
 use anyhow::bail;
 use std::path::PathBuf;
 
+/// Replace this process with the apptainer invocation (never returns on
+/// success — the Err is the exec(2) failure).
+pub fn exec_replace(program: &str, args: &[String]) -> std::io::Error {
+    use std::os::unix::process::CommandExt;
+    std::process::Command::new(program).args(args).exec()
+}
+
+/// Warn on stderr when an ext3 overlay crosses 80% usage.
+pub fn warn_if_overlay_full(config: &Config, paths: &AppPaths) {
+    if config.overlay.overlay_type != OverlayType::Ext3 {
+        return;
+    }
+    use std::os::unix::fs::MetadataExt;
+    if let Ok(meta) = std::fs::metadata(&paths.overlay_path) {
+        let on_disk = meta.blocks() * 512;
+        let allocated = meta.len();
+        if let Some(warning) = crate::util::overlay_usage_warning(on_disk, allocated, 80) {
+            eprintln!("{warning}");
+        }
+    }
+}
+
 /// What the container session runs against.
 #[derive(Debug)]
 pub enum Storage {

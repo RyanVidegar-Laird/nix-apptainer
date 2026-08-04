@@ -117,13 +117,16 @@ fn watch(dir: &Path, expected_bytes: Option<u64>, stop: &AtomicBool) {
         pb
     });
     let mut last_line = Instant::now();
-    let mut last_walk = Instant::now() - Duration::from_secs(60);
+    // None means "walk on the first tick". Not `Instant::now() - 60s`:
+    // Instant is monotonic-since-boot, so that underflows and panics when
+    // the process starts within 60s of boot (exactly the VM-test case).
+    let mut last_walk: Option<Instant> = None;
     while !stop.load(Ordering::Relaxed) {
         std::thread::sleep(Duration::from_millis(200));
-        if last_walk.elapsed() < Duration::from_secs(2) {
+        if last_walk.is_some_and(|t| t.elapsed() < Duration::from_secs(2)) {
             continue;
         }
-        last_walk = Instant::now();
+        last_walk = Some(Instant::now());
         let written = dir_disk_usage(dir);
         if let Some(pb) = &bar {
             pb.set_position(written.min(expected_bytes.unwrap_or(u64::MAX)));

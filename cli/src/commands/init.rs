@@ -30,24 +30,7 @@ fn fetch_sif(
             println!("Fetching latest release from {repo}...");
             let release = sif::fetch_latest_release(repo)?;
             println!("  Found {} \u{2014} downloading...", release.tag);
-            let hash = sif::download_file(&release.sif_url, &paths.sif_path)?;
-            println!("  SHA256: {hash}");
-
-            if let Some(ref sha_url) = release.sha256_url {
-                let expected = reqwest::blocking::Client::builder()
-                    .user_agent("nix-apptainer")
-                    .https_only(true)
-                    .build()?
-                    .get(sha_url)
-                    .send()?
-                    .text()?;
-                if sif::verify_sha256(&hash, &expected, Some(&release.sif_asset_name)) {
-                    println!("  SHA256 verified \u{2713}");
-                } else {
-                    anyhow::bail!("SHA256 mismatch! Expected: {expected}, Got: {hash}");
-                }
-            }
-
+            let hash = sif::download_and_verify(&release, &paths.sif_path)?;
             Ok((release.tag, hash, release.signing_key_url))
         }
         SifSource::Url { url } => {

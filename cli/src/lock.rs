@@ -26,8 +26,8 @@ pub fn acquire(path: &Path, force: bool) -> anyhow::Result<Option<SessionLock>> 
             Ok(Some(SessionLock(lock)))
         }
         Err((_file, _errno)) => {
-            let holder = std::fs::read_to_string(path).unwrap_or_default();
-            let holder = holder.trim().to_string();
+            let contents = std::fs::read_to_string(path).unwrap_or_default();
+            let holder = contents.trim();
             if force {
                 eprintln!(
                     "Warning: sandbox already in use by another session (PID {holder}); entering anyway (--force)."

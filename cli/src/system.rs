@@ -50,7 +50,10 @@ impl System for RealSystem {
         program: &str,
         args: &[&str],
     ) -> anyhow::Result<std::process::Output> {
-        Command::new(program).args(args).output().map_err(Into::into)
+        Command::new(program)
+            .args(args)
+            .output()
+            .map_err(Into::into)
     }
 
     fn find_command(&self, name: &str) -> Option<String> {
