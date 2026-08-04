@@ -66,6 +66,41 @@ pub fn mount_dest(entry: &str) -> Option<String> {
     })
 }
 
+/// `/proc/self/mounts` escapes space, tab, newline and backslash in octal.
+fn unescape_mount_path(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let octal: String = chars.by_ref().take(3).collect();
+        match u32::from_str_radix(&octal, 8).ok().and_then(char::from_u32) {
+            Some(decoded) => out.push(decoded),
+            None => {
+                out.push('\\');
+                out.push_str(&octal);
+            }
+        }
+    }
+    out
+}
+
+/// Mount target paths from `/proc/self/mounts` content.
+///
+/// Field 2 is the target; field 1 (the source) is dropped deliberately and
+/// never returned — on clusters it carries NFS server hostnames and IP
+/// addresses that we neither need nor should persist into a config file.
+pub fn parse_mount_targets(proc_mounts: &str) -> std::collections::BTreeSet<String> {
+    proc_mounts
+        .lines()
+        .filter_map(|l| l.split_whitespace().nth(1))
+        .filter(|t| t.starts_with('/'))
+        .map(unescape_mount_path)
+        .collect()
+}
+
 /// What `seed_path` did.
 pub enum Seeded {
     /// Created a directory mirroring a host directory.
@@ -121,31 +156,65 @@ pub fn seed_paths(sandbox_dir: &Path, paths: &[String]) {
     }
 }
 
-/// Launch a throwaway container against the unpacked sandbox and collect
-/// the mount points apptainer itself says it skipped. Runtime warnings are
-/// the only source that covers every mechanism (bind path, hostfs, ...).
-/// Never fails — discovery is a convenience; empty on any error.
-pub fn discover_missing_mount_points(
+/// One discovery run: the container's mount targets plus its stderr.
+///
+/// `isolated` selects the baseline (our own isolation flags) or the site's
+/// defaults. Failure is not an error — an empty result just means nothing
+/// to offer.
+fn probe_mount_targets(
     sys: &dyn crate::system::System,
     apptainer: &str,
-    sandbox_dir: &Path,
-) -> Vec<String> {
-    // --writable is essential, not incidental: without it apptainer stacks an
-    // overlay/underlay over the sandbox and silently *fabricates* every
-    // missing mount point, so the probe reports nothing to create. Real
-    // sessions run --writable, where it cannot, and warns instead.
-    //
-    // /bin/sh, not /bin/true: the image ships a minimal /bin. Apptainer emits
-    // its mount warnings while setting up the container, before exec'ing the
-    // command, but a missing binary would make the failure look like ours.
-    let dir = sandbox_dir.to_string_lossy();
-    match sys.run_command_capture(
-        apptainer,
-        &["exec", "--writable", dir.as_ref(), "/bin/sh", "-c", "true"],
-    ) {
-        Ok(out) => parse_skipped_mounts(&String::from_utf8_lossy(&out.stderr)),
-        Err(_) => Vec::new(),
+    target_args: &[String],
+    isolated: bool,
+) -> (std::collections::BTreeSet<String>, String) {
+    let mut args = vec!["exec".to_string()];
+    if isolated {
+        args.push("--no-mount".to_string());
+        args.push(crate::container::ISOLATED_MOUNTS.to_string());
     }
+    args.extend(target_args.iter().cloned());
+    // /bin/sh, not /bin/true: the image ships a minimal /bin.
+    args.push("/bin/sh".to_string());
+    args.push("-c".to_string());
+    args.push("cat /proc/self/mounts".to_string());
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    match sys.run_command_capture(apptainer, &refs) {
+        Ok(out) => (
+            parse_mount_targets(&String::from_utf8_lossy(&out.stdout)),
+            String::from_utf8_lossy(&out.stderr).to_string(),
+        ),
+        Err(_) => (std::collections::BTreeSet::new(), String::new()),
+    }
+}
+
+/// Host paths the site's apptainer configuration would mount into the
+/// container.
+///
+/// Discovered empirically rather than read from apptainer.conf: `mount
+/// hostfs = yes` means "mount every host filesystem", so there is no list to
+/// read. Run the container twice — once with our isolation flags, once with
+/// the site's defaults — and return what the second gains over the first,
+/// plus any path the site tried to mount but could not (those never reach
+/// /proc/self/mounts, only stderr).
+///
+/// Never fails: discovery is a convenience, and an empty list simply means
+/// the container is already fully isolated.
+pub fn discover_host_mounts(
+    sys: &dyn crate::system::System,
+    apptainer: &str,
+    target_args: &[String],
+) -> Vec<String> {
+    let (baseline, _) = probe_mount_targets(sys, apptainer, target_args, true);
+    let (site, stderr) = probe_mount_targets(sys, apptainer, target_args, false);
+    let mut found: Vec<String> = site.difference(&baseline).cloned().collect();
+    for p in parse_skipped_mounts(&stderr) {
+        if !found.contains(&p) {
+            found.push(p);
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
 }
 
 /// Ensure every configured mount target exists in the sandbox:
@@ -284,18 +353,59 @@ destination /sitedata doesn't exist in container\n";
         assert!(sandbox.path().join("flagdir").is_dir());
     }
 
-    struct StderrSystem(&'static str);
+    #[test]
+    fn test_parse_mount_targets_keeps_targets_only() {
+        // Field 1 is the source. On clusters it carries NFS server names and
+        // addresses; parse_mount_targets must never surface it.
+        let mounts = "\
+proc /proc proc rw,relatime 0 0
+nfs-server.internal:/export/home/ryanvl /home/ryanvl nfs4 rw 0 0
+10.1.2.3:/vol/datastore /datastore nfs4 rw 0 0
+tmpfs /tmp tmpfs rw 0 0
+";
+        let targets = parse_mount_targets(mounts);
+        assert!(targets.contains("/home/ryanvl"));
+        assert!(targets.contains("/datastore"));
+        assert!(targets.contains("/proc"));
+        let joined = targets.iter().cloned().collect::<Vec<_>>().join(" ");
+        assert!(!joined.contains("nfs-server"), "leaked source: {joined}");
+        assert!(!joined.contains("10.1.2.3"), "leaked source: {joined}");
+    }
 
-    impl crate::system::System for StderrSystem {
+    #[test]
+    fn test_parse_mount_targets_unescapes_octal() {
+        // /proc/self/mounts writes space as \040.
+        let targets = parse_mount_targets("tmpfs /mnt/my\\040data tmpfs rw 0 0\n");
+        assert!(targets.contains("/mnt/my data"), "got {targets:?}");
+    }
+
+    #[test]
+    fn test_parse_mount_targets_ignores_garbage() {
+        assert!(parse_mount_targets("").is_empty());
+        assert!(parse_mount_targets("nonsense\n").is_empty());
+        assert!(parse_mount_targets("src relative-target ext4 rw 0 0\n").is_empty());
+    }
+
+    /// Returns a different (stdout, stderr) per call, so one test can model
+    /// the isolated run and the site-defaults run.
+    struct SeqSystem {
+        runs: Vec<(&'static str, &'static str)>,
+        idx: std::cell::Cell<usize>,
+    }
+
+    impl crate::system::System for SeqSystem {
         fn run_command(&self, _: &str, _: &[&str]) -> anyhow::Result<std::process::ExitStatus> {
             unimplemented!("discovery uses run_command_capture")
         }
         fn run_command_capture(&self, _: &str, _: &[&str]) -> anyhow::Result<std::process::Output> {
             use std::os::unix::process::ExitStatusExt;
+            let i = self.idx.get();
+            self.idx.set(i + 1);
+            let (stdout, stderr) = self.runs[i];
             Ok(std::process::Output {
                 status: std::process::ExitStatus::from_raw(0),
-                stdout: Vec::new(),
-                stderr: self.0.as_bytes().to_vec(),
+                stdout: stdout.as_bytes().to_vec(),
+                stderr: stderr.as_bytes().to_vec(),
             })
         }
         fn find_command(&self, _: &str) -> Option<String> {
@@ -319,12 +429,37 @@ destination /sitedata doesn't exist in container\n";
     }
 
     #[test]
-    fn test_discover_missing_mount_points() {
-        let sys = StderrSystem(
-            "WARNING: Skipping mount /datastore [hostfs]: /datastore doesn't exist in container\n",
-        );
-        let found = discover_missing_mount_points(&sys, "apptainer", Path::new("/sb"));
-        assert_eq!(found, vec!["/datastore"]);
+    fn test_discover_host_mounts_diffs_the_two_runs() {
+        let isolated = "proc /proc proc rw 0 0\ntmpfs /tmp tmpfs rw 0 0\n";
+        let site = "proc /proc proc rw 0 0\ntmpfs /tmp tmpfs rw 0 0\n\
+                    srv:/export/home /home/ryanvl nfs4 rw 0 0\n\
+                    srv:/vol/ds /datastore nfs4 rw 0 0\n";
+        let sys = SeqSystem {
+            // First call is the isolated baseline, second is site defaults.
+            runs: vec![(isolated, ""), (site, "")],
+            idx: std::cell::Cell::new(0),
+        };
+        let found = discover_host_mounts(&sys, "apptainer", &["--writable".into(), "/sb".into()]);
+        assert_eq!(found, vec!["/datastore", "/home/ryanvl"]);
+    }
+
+    #[test]
+    fn test_discover_host_mounts_includes_paths_that_failed_to_mount() {
+        // A site bind whose target is missing never reaches /proc/self/mounts,
+        // so it only shows up as a warning.
+        let same = "proc /proc proc rw 0 0\n";
+        let sys = SeqSystem {
+            runs: vec![
+                (same, ""),
+                (
+                    same,
+                    "WARNING: Skipping mount /share [hostfs]: /share doesn't exist in container\n",
+                ),
+            ],
+            idx: std::cell::Cell::new(0),
+        };
+        let found = discover_host_mounts(&sys, "apptainer", &["--writable".into(), "/sb".into()]);
+        assert_eq!(found, vec!["/share"]);
     }
 
     #[test]

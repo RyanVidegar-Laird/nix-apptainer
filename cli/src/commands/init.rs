@@ -61,6 +61,38 @@ fn announce_unpack(expected: Option<u64>) {
     }
 }
 
+/// Offer discovered host paths for explicit opt-in.
+///
+/// Nothing is selected by default: the container is isolated from the host,
+/// and the user asks for what they want back. Returns `enter.bind` entries
+/// ("path:path"); `ensure_mount_points` seeds their destinations into
+/// sandbox trees before each launch, so `--writable` gets working mount
+/// points without any extra config.
+fn select_host_mounts(candidates: &[String], yes: bool) -> anyhow::Result<Vec<String>> {
+    if candidates.is_empty() {
+        println!("  None \u{2014} the container is already isolated from the host.");
+        return Ok(Vec::new());
+    }
+    println!("  The container is isolated from the host by default. Your site");
+    println!("  would otherwise mount these paths into it:");
+    for p in candidates {
+        println!("    {p}");
+    }
+    if yes {
+        println!("  --yes: nothing selected, staying fully isolated.");
+        return Ok(Vec::new());
+    }
+    let picks = dialoguer::MultiSelect::new()
+        .with_prompt("Host paths to mount (space to toggle, enter to select none)")
+        .items(candidates)
+        .defaults(&vec![false; candidates.len()])
+        .interact()?;
+    Ok(picks
+        .into_iter()
+        .map(|i| format!("{0}:{0}", candidates[i]))
+        .collect())
+}
+
 /// Save configuration and state after successful init.
 fn save_init_state(
     paths: &AppPaths,
@@ -410,7 +442,6 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     }
 
     // --- Pre-seed Nix DB (overlay modes only) ---
-    let mut mount_points: Vec<String> = Vec::new();
     match overlay_type {
         OverlayType::Directory | OverlayType::Ext3 => {
             let overlay_str = match overlay_type {
@@ -428,31 +459,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
         }
         OverlayType::Sandbox => {
             // DB is baked into the image and now on a plain filesystem — no
-            // pre-seed needed. Discovery and seeding come before the probe:
-            // the probe must see the environment user builds will see.
-            let discovered =
-                crate::mounts::discover_missing_mount_points(&sys, &apptainer, &paths.sandbox_dir);
-            mount_points = if discovered.is_empty() {
-                Vec::new()
-            } else if flags.yes {
-                println!("Creating mount points for site-configured binds:");
-                for p in &discovered {
-                    println!("  {p}");
-                }
-                discovered
-            } else {
-                println!("The site apptainer config mounts paths that don't exist in the image;");
-                println!("selected paths are created in the sandbox so those mounts succeed:");
-                let defaults = vec![true; discovered.len()];
-                let picks = dialoguer::MultiSelect::new()
-                    .with_prompt("Mount points to create (space to toggle)")
-                    .items(&discovered)
-                    .defaults(&defaults)
-                    .interact()?;
-                picks.into_iter().map(|i| discovered[i].clone()).collect()
-            };
-            crate::mounts::seed_paths(&paths.sandbox_dir, &mount_points);
-
+            // pre-seed needed.
             println!("Probing Nix build sandbox support...");
             let outcome =
                 crate::sandbox::probe_and_enable_nix_sandbox(&sys, &apptainer, &paths.sandbox_dir)?;
@@ -471,6 +478,31 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
         }
     }
 
+    // --- Host mounts: isolated by default, opt in explicitly ---
+    // Runs for every storage mode: `mount hostfs = yes` affects overlay
+    // modes exactly as it does sandbox mode.
+    let overlay_str = match overlay_type {
+        OverlayType::Directory => paths.overlay_dir.to_string_lossy().to_string(),
+        OverlayType::Ext3 => paths.overlay_path.to_string_lossy().to_string(),
+        OverlayType::Sandbox => String::new(),
+    };
+    let discovery_target = match overlay_type {
+        OverlayType::Sandbox => crate::container::ContainerTarget::Sandbox {
+            dir: &paths.sandbox_dir,
+        },
+        _ => crate::container::ContainerTarget::Overlay {
+            sif: &paths.sif_path,
+            overlay: &overlay_str,
+        },
+    };
+    println!("Checking which host paths your site would mount...");
+    let candidates = crate::mounts::discover_host_mounts(
+        &sys,
+        &apptainer,
+        &crate::container::target_args(&discovery_target),
+    );
+    let bind = select_host_mounts(&candidates, flags.yes)?;
+
     // --- Save config and state ---
     save_init_state(
         &paths,
@@ -481,7 +513,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
         hash,
         crate::config::EnterConfig {
             tmpdir,
-            mount_points,
+            bind,
             ..crate::config::EnterConfig::default()
         },
     )?;
