@@ -55,10 +55,11 @@ pub fn run(flags: EnterFlags) -> anyhow::Result<()> {
     };
     let args = build_apptainer_args(&opts, ContainerMode::Run);
 
-    if let super::Storage::Sandbox(_) = &storage
-        && let Some(lock) = crate::lock::acquire(&paths.sandbox_lock, flags.force)?
-    {
-        crate::lock::hold_across_exec(lock)?;
+    if let super::Storage::Sandbox(dir) = &storage {
+        crate::mounts::ensure_mount_points(dir, &config.enter, &flags.bind);
+        if let Some(lock) = crate::lock::acquire(&paths.sandbox_lock, flags.force)? {
+            crate::lock::hold_across_exec(lock)?;
+        }
     }
 
     let err = exec_replace(&apptainer, &args);
