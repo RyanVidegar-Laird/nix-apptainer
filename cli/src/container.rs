@@ -203,41 +203,29 @@ mod tests {
     }
 
     #[test]
-    fn test_run_mode_basic() {
+    fn test_overlay_mode_maps_to_subcommand_and_image() {
         let paths = test_paths();
         let overlay = test_overlay();
         let config = test_config();
-        let opts = ContainerOpts {
-            target: overlay_target(&paths, &overlay),
-            config: &config,
-            nv: false,
-            rocm: false,
-            bind: &[],
-            passthrough: &[],
-            quiet: false,
+        let mk = |mode| {
+            let opts = ContainerOpts {
+                target: overlay_target(&paths, &overlay),
+                config: &config,
+                nv: false,
+                rocm: false,
+                bind: &[],
+                passthrough: &[],
+                quiet: false,
+            };
+            build_apptainer_args(&opts, mode)
         };
-        let args = build_apptainer_args(&opts, ContainerMode::Run);
-        assert_eq!(args[0], "run");
-        assert_eq!(args[1], "--overlay");
-        assert!(args.last().unwrap().ends_with("base.sif"));
-    }
-
-    #[test]
-    fn test_exec_mode() {
-        let paths = test_paths();
-        let overlay = test_overlay();
-        let config = test_config();
-        let opts = ContainerOpts {
-            target: overlay_target(&paths, &overlay),
-            config: &config,
-            nv: false,
-            rocm: false,
-            bind: &[],
-            passthrough: &[],
-            quiet: false,
-        };
-        let args = build_apptainer_args(&opts, ContainerMode::Exec);
-        assert_eq!(args[0], "exec");
+        let run = mk(ContainerMode::Run);
+        assert_eq!(run[0], "run");
+        assert_eq!(run[1], "--overlay");
+        // The image argument must stay last — apptainer treats everything
+        // after it as the container's own argv.
+        assert!(run.last().unwrap().ends_with("base.sif"));
+        assert_eq!(mk(ContainerMode::Exec)[0], "exec");
     }
 
     #[test]
@@ -355,16 +343,10 @@ mod tests {
             quiet: true,
         };
         let args = build_apptainer_args(&opts, ContainerMode::Run);
-        // --quiet must come before the subcommand
+        // --quiet is a global flag: apptainer rejects it after the subcommand
         assert_eq!(args[0], "--quiet");
         assert_eq!(args[1], "run");
-    }
 
-    #[test]
-    fn test_no_quiet_by_default() {
-        let paths = test_paths();
-        let overlay = test_overlay();
-        let config = test_config();
         let opts = ContainerOpts {
             target: overlay_target(&paths, &overlay),
             config: &config,
