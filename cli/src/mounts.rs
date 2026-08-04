@@ -95,6 +95,22 @@ pub fn seed_paths(sandbox_dir: &Path, paths: &[String]) {
     }
 }
 
+/// Launch a throwaway container against the unpacked sandbox and collect
+/// the mount points apptainer itself says it skipped. Runtime warnings are
+/// the only source that covers every mechanism (bind path, hostfs, ...).
+/// Never fails — discovery is a convenience; empty on any error.
+pub fn discover_missing_mount_points(
+    sys: &dyn crate::system::System,
+    apptainer: &str,
+    sandbox_dir: &Path,
+) -> Vec<String> {
+    let dir = sandbox_dir.to_string_lossy();
+    match sys.run_command_capture(apptainer, &["exec", dir.as_ref(), "/bin/true"]) {
+        Ok(out) => parse_skipped_mounts(&String::from_utf8_lossy(&out.stderr)),
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Ensure every configured mount target exists in the sandbox:
 /// mount_points, bind destinations (config + flags), long-form mount
 /// destinations. Idempotent and cheap — called before every sandbox launch.
@@ -210,6 +226,53 @@ WARNING: Skipping mount /datastore [hostfs]: duplicate
         assert!(sandbox.path().join("bounddir").is_dir());
         assert!(sandbox.path().join("mountdir").is_dir());
         assert!(sandbox.path().join("flagdir").is_dir());
+    }
+
+    struct StderrSystem(&'static str);
+
+    impl crate::system::System for StderrSystem {
+        fn run_command(&self, _: &str, _: &[&str]) -> anyhow::Result<std::process::ExitStatus> {
+            unimplemented!("discovery uses run_command_capture")
+        }
+        fn run_command_capture(
+            &self,
+            _: &str,
+            _: &[&str],
+        ) -> anyhow::Result<std::process::Output> {
+            use std::os::unix::process::ExitStatusExt;
+            Ok(std::process::Output {
+                status: std::process::ExitStatus::from_raw(0),
+                stdout: Vec::new(),
+                stderr: self.0.as_bytes().to_vec(),
+            })
+        }
+        fn find_command(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn command_version(&self, _: &str, _: &str) -> Option<String> {
+            None
+        }
+        fn available_disk_bytes(&self, _: &Path) -> Option<u64> {
+            None
+        }
+        fn path_exists(&self, _: &Path) -> bool {
+            false
+        }
+        fn resolve_command_path(&self, _: &str) -> Option<std::path::PathBuf> {
+            None
+        }
+        fn filesystem_magic(&self, _: &Path) -> Option<i64> {
+            None
+        }
+    }
+
+    #[test]
+    fn test_discover_missing_mount_points() {
+        let sys = StderrSystem(
+            "WARNING: Skipping mount /datastore [hostfs]: /datastore doesn't exist in container\n",
+        );
+        let found = discover_missing_mount_points(&sys, "apptainer", Path::new("/sb"));
+        assert_eq!(found, vec!["/datastore"]);
     }
 
     #[test]

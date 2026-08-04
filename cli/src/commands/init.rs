@@ -397,6 +397,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     }
 
     // --- Pre-seed Nix DB (overlay modes only) ---
+    let mut mount_points: Vec<String> = Vec::new();
     match overlay_type {
         OverlayType::Directory | OverlayType::Ext3 => {
             let overlay_str = match overlay_type {
@@ -414,7 +415,31 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
         }
         OverlayType::Sandbox => {
             // DB is baked into the image and now on a plain filesystem — no
-            // pre-seed needed. Probe whether the Nix build sandbox works here.
+            // pre-seed needed. Discovery and seeding come before the probe:
+            // the probe must see the environment user builds will see.
+            let discovered =
+                crate::mounts::discover_missing_mount_points(&sys, &apptainer, &paths.sandbox_dir);
+            mount_points = if discovered.is_empty() {
+                Vec::new()
+            } else if flags.yes {
+                println!("Creating mount points for site-configured binds:");
+                for p in &discovered {
+                    println!("  {p}");
+                }
+                discovered
+            } else {
+                println!("The site apptainer config mounts paths that don't exist in the image;");
+                println!("selected paths are created in the sandbox so those mounts succeed:");
+                let defaults = vec![true; discovered.len()];
+                let picks = dialoguer::MultiSelect::new()
+                    .with_prompt("Mount points to create (space to toggle)")
+                    .items(&discovered)
+                    .defaults(&defaults)
+                    .interact()?;
+                picks.into_iter().map(|i| discovered[i].clone()).collect()
+            };
+            crate::mounts::seed_paths(&paths.sandbox_dir, &mount_points);
+
             println!("Probing Nix build sandbox support...");
             let outcome =
                 crate::sandbox::probe_and_enable_nix_sandbox(&sys, &apptainer, &paths.sandbox_dir)?;
@@ -443,6 +468,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
         hash,
         crate::config::EnterConfig {
             tmpdir,
+            mount_points,
             ..crate::config::EnterConfig::default()
         },
     )?;

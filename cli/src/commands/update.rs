@@ -102,6 +102,9 @@ pub fn run(flags: UpdateFlags) -> anyhow::Result<()> {
             checks::apptainer_binary(&sys).context("apptainer/singularity not found")?;
         println!("Re-unpacking sandbox directory (this can take several minutes)...");
         sandbox::create_sandbox(&sys, &apptainer, &paths.sif_path, &paths.sandbox_dir)?;
+        // Re-unpack wipes the tree, so the configured mount points have to be
+        // recreated. No re-discovery here — config.toml is the declarative record.
+        crate::mounts::ensure_mount_points(&paths.sandbox_dir, &config.enter, &[]);
         println!("Probing Nix build sandbox support...");
         let outcome = sandbox::probe_and_enable_nix_sandbox(&sys, &apptainer, &paths.sandbox_dir)?;
         if outcome.enabled {
