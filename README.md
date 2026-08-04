@@ -4,20 +4,6 @@
 
 Apptainer container image with a minimal NixOS system and single-user Nix for HPC environments. This acts as a shim / portable shell where a persistent, writable `/nix/store` is available and `nix` commands (including flakes) work out of the box.
 
-## Why
-
-I got sick of how messy dependency management can get for bioinformatics projects. Even a relatively simple one might involve various command line tools (`samtools`, `salmon`, `picard`, ...), an `R` environment (`tidyverse`, `ggplot2`, `limma`, `DESeq2`, ...), a python environment (`pandas`, `pytorch`, `scikit-learn`, ...), and some random old scripts a colleague recommended, all glued together with bash scripts or a workflow tool like `snakemake` or `nextflow`.
-
-The chances that all required dependencies are available via, say, Conda/Mamba/Pixi are quite low. Chances that it'll be possible to resolve all conflicting versions within a single environment are even lower. One could instead [split out different environments](https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#integrated-package-management) per analytical step (a Conda env here, Docker there, pip elsewhere, ...), yet that's a whole new abstracted dependency graph to manage.
-
-Even after all of that, solutions like Conda still end up breaking after system upgrades or *ad hoc* installs due to dynamic linking. Good luck getting a Conda env to work again in two years.
-
-Docker/Apptainer doesn't help much on it's own. Most Docker images in the field are *repeatable*, i.e. if you have the already-built image you can re-run it, which is a great start. However, the build process itself is rarely *reproducible* (all those arbitrary `apt-get update`s). An image built today will be different than the same image built in six months, unless one is very careful. Interactively working within one or more immutable Docker containers isn't a good development experience anyways.
-
-Nix/Nixpkgs makes it easy to be very careful. Coupled with Apptainer's writable overlays, one can have a highly-reproducible environment on HPCs using a single configuration file, while still having an interactive development cycle.
-
-I've been using this setup for 3+ years on an HPC with no issues. My project environments have survived many system upgrades, even a full upgrade from RHEL to Rocky Linux, and I didn't even notice. Up to producing this repo, I did so with my own messy bash scripts. This repo is simply a fancy, Rust-based 🚀, vibe-coded, convenience wrapper to make getting started easier.
-
 ## Quick Start
 
 Download the CLI binary for your architecture from [GitHub Releases](https://github.com/RyanVidegar-Laird/nix-apptainer/releases):
@@ -90,20 +76,64 @@ By default, the host `$HOME` is **not** mounted into the container. The containe
 
 | mode | what it is | pick it when |
 |---|---|---|
-| `dir` (default) | read-only SIF + directory overlay via fuse-overlayfs | modern apptainer (bundled fuse-overlayfs ≥ 1.14); best all-round |
-| `ext3` | read-only SIF + sparse ext3 image overlay | parallel filesystems (Lustre/GPFS) where one big file beats many small ones |
-| `sandbox` | SIF unpacked into a writable directory — no overlay, no FUSE | old apptainer (≤ 1.3.x, bundled fuse-overlayfs ≤ 1.13, where overlay builds fail with EPERM), or when you want the Nix build sandbox |
+| `sandbox` (default) | SIF unpacked into a writable directory — no overlay, no FUSE | the default: works on every apptainer including old ones (≤ 1.3.x, where the bundled fuse-overlayfs ≤ 1.13 makes overlay builds fail with EPERM), and the only mode where the Nix build sandbox works |
+| `dir` | read-only SIF + directory overlay via fuse-overlayfs | disk or inode quota is tight (~2 GB instead of ~10 GB); needs a working fuse-overlayfs (bundled ≥ 1.14) |
+| `ext3` | read-only SIF + sparse ext3 image overlay | inode-constrained parallel filesystems (Lustre/GPFS) where one big file beats many small ones |
 
-The image ships with the Nix build sandbox **off** (`sandbox = false`), because
-overlay-backed stores cannot support it. Sandbox mode trade-offs: the unpacked
-tree is hundreds of thousands of files (put it on node-local or scratch storage,
-not your network home); `update` re-unpacks and discards local changes; sessions
-take an advisory lock (`--force` to bypass). In exchange, local builds work
-everywhere apptainer runs, and `init` re-enables `sandbox = true` automatically
-when a probe shows it works.
+Sandbox mode costs disk: the unpacked tree is ~10 GB and hundreds of thousands
+of files, so put it on node-local or scratch storage, not a network home. It
+also re-unpacks on `update` (discarding local changes), and sessions take an
+advisory lock (`--force` to bypass). In exchange it needs no FUSE at all, and
+local builds work everywhere apptainer runs.
+
+The image ships with the Nix build sandbox **off** (`sandbox = false`) because
+overlay-backed stores cannot support it. In sandbox mode `init` probes whether
+it works here and writes the verdict (`sandbox = true` or `false`) into the
+container's `/etc/nix/nix.conf.local`. A failed probe can be environmental
+rather than a real capability gap, so the probe's output is printed; re-running
+`nix-apptainer init` and keeping the existing sandbox re-probes.
 
 `init` checks your host and tells you which modes will work — including
 detecting the buggy bundled fuse-overlayfs on old apptainer installs.
+
+### Site bind mounts in sandbox mode
+
+In sandbox mode apptainer cannot create missing mount points, so binds from
+the site's apptainer.conf (e.g. `/datastore`, `/share` on many clusters) are
+silently skipped and that data is invisible in the container. `init`
+detects these (from apptainer's own "Skipping mount" warnings), lets you
+pick which to create, and records them:
+
+```toml
+[enter]
+# Paths created inside the sandbox so site-configured binds succeed.
+# nix-apptainer never mounts these itself — the site's apptainer.conf does.
+mount_points = ["/datastore", "/share"]
+
+# Mounts nix-apptainer passes itself:
+bind = ["/scratch:/scratch"]                      # --bind (all runtimes)
+mount = ["type=bind,source=/data,dest=/mnt,ro"]   # --mount (Apptainer >= 1.1)
+```
+
+Mount points are (re)created at init, after updates, and before every
+`enter`/`exec`, mirroring the host path's type (directory or file).
+
+### TMPDIR
+
+`nix-build` creates a scratch directory under `$TMPDIR` before any build
+starts, so TMPDIR must name a path the container can actually see —
+`build-dir` cannot rescue an unbound one. By default nix-apptainer leaves
+the host's `$TMPDIR` alone; `init` shows you the current value and lets you
+keep it, pin `/tmp`, or enter a custom path:
+
+```toml
+[enter]
+tmpdir = "/scratch/$USER/tmp"   # empty (default) inherits the host's TMPDIR
+```
+
+If you point it at a host scratch path, add a matching `bind` — and in
+sandbox mode a `mount_points` entry — or the mount is skipped and builds
+fail once they try to use it.
 
 ## Configuration
 
@@ -129,12 +159,15 @@ source = "github"                    # "github", a URL, or a local file path
 repo = "RyanVidegar-Laird/nix-apptainer"  # GitHub repo for updates
 
 [overlay]
-type = "directory"                   # "directory" (default), "ext3", or "sandbox"
+type = "sandbox"                     # "sandbox" (default), "directory", or "ext3"
 ext3_size_mb = 51200                 # sparse overlay size in MB (ext3 only)
 
 [enter]
 gpu = "nvidia"                       # "", "nvidia", or "rocm"
 bind = ["/scratch:/scratch", "/data:/data"]
+mount = ["type=bind,source=/data,dest=/mnt,ro"]  # long-form --mount (Apptainer >= 1.1)
+mount_points = ["/datastore"]        # paths created so site-configured binds succeed
+tmpdir = ""                          # container TMPDIR; empty inherits the host's
 quiet = false                        # suppress apptainer stderr warnings
 mount_home = false                   # true to bind-mount host $HOME (default: false)
 ```
