@@ -18,6 +18,24 @@ pub enum ContainerTarget<'a> {
     Sandbox { dir: &'a Path },
 }
 
+/// Storage flags plus the image argument, in that order — enough to place a
+/// target on a one-shot `apptainer exec` command line. Used by init-time
+/// mount discovery, which needs the same container the real session gets.
+/// `build_apptainer_args` does not use this: there the storage flag comes
+/// early and the image argument last, with other flags in between.
+pub fn target_args(target: &ContainerTarget) -> Vec<String> {
+    match target {
+        ContainerTarget::Overlay { sif, overlay } => vec![
+            "--overlay".to_string(),
+            overlay.to_string(),
+            sif.to_string_lossy().to_string(),
+        ],
+        ContainerTarget::Sandbox { dir } => {
+            vec!["--writable".to_string(), dir.to_string_lossy().to_string()]
+        }
+    }
+}
+
 /// Options for building the apptainer command line.
 pub struct ContainerOpts<'a> {
     pub target: ContainerTarget<'a>,
@@ -28,6 +46,15 @@ pub struct ContainerOpts<'a> {
     pub passthrough: &'a [String],
     pub quiet: bool,
 }
+
+/// Host mount mechanisms apptainer must not use.
+///
+/// `hostfs` and `home` are INDEPENDENT: on a site with `mount hostfs = yes`
+/// the home directory is mounted by both, so disabling either one alone
+/// still leaves the host home visible (measured on apptainer 1.3.2).
+/// `cwd` keeps the launch directory out. Naming a mechanism the site has
+/// already disabled is a harmless no-op.
+pub(crate) const ISOLATED_MOUNTS: &str = "hostfs,home,cwd";
 
 /// Build the argument list for an apptainer run/exec invocation.
 ///
@@ -57,18 +84,15 @@ pub fn build_apptainer_args(opts: &ContainerOpts, mode: ContainerMode) -> Vec<St
         }
     }
 
-    // Isolate home directory: don't mount host $HOME or CWD into the
-    // container. Prevents host dotfile conflicts.
-    // HOME is set by Apptainer from the container's /etc/passwd.
-    // For `enter` (run mode), entrypoint.sh creates $HOME and bash --login
-    // cds there. For `exec` mode, / is a safe starting directory.
-    if !opts.config.enter.mount_home {
-        args.push("--no-home".to_string());
-        args.push("--no-mount".to_string());
-        args.push("cwd".to_string());
-        args.push("--pwd".to_string());
-        args.push("/".to_string());
-    }
+    // Isolated from the host by default, in every storage mode: nothing of
+    // the host filesystem is mounted unless the user opted in via
+    // enter.bind / enter.mount. HOME is still set by apptainer from the
+    // container's /etc/passwd — for `enter` (run mode) entrypoint.sh creates
+    // it and bash --login cds there; for `exec`, / is a safe start.
+    args.push("--no-mount".to_string());
+    args.push(ISOLATED_MOUNTS.to_string());
+    args.push("--pwd".to_string());
+    args.push("/".to_string());
 
     // GPU from config, overridden by flags
     let use_nv = opts.nv || opts.config.enter.gpu == GpuMode::Nvidia;
@@ -200,6 +224,23 @@ mod tests {
         assert_eq!(args[1], "exec");
         assert!(args.contains(&"--nv".to_string()));
         assert_eq!(args.last().unwrap(), "/data/na/sandbox");
+    }
+
+    #[test]
+    fn test_target_args_places_image_last() {
+        let paths = test_paths();
+        let overlay = test_overlay();
+        let args = target_args(&overlay_target(&paths, &overlay));
+        assert_eq!(args[0], "--overlay");
+        assert_eq!(args[1], overlay);
+        assert!(
+            args[2].ends_with("base.sif"),
+            "image must come last: {args:?}"
+        );
+
+        let dir = PathBuf::from("/data/na/sandbox");
+        let args = target_args(&ContainerTarget::Sandbox { dir: &dir });
+        assert_eq!(args, vec!["--writable", "/data/na/sandbox"]);
     }
 
     #[test]
@@ -362,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn test_no_home_by_default() {
+    fn test_host_isolation_flags_always_present() {
         let paths = test_paths();
         let overlay = test_overlay();
         let config = test_config();
@@ -376,26 +417,27 @@ mod tests {
             quiet: false,
         };
         let args = build_apptainer_args(&opts, ContainerMode::Run);
-        assert!(args.contains(&"--no-home".to_string()));
-        assert!(args.contains(&"--no-mount".to_string()));
-        assert!(args.contains(&"cwd".to_string()));
+        let i = args.iter().position(|a| a == "--no-mount").unwrap();
+        // hostfs and home are independent mechanisms: on a site with
+        // `mount hostfs = yes` each mounts $HOME on its own, so naming only
+        // one leaves the host home exposed (apptainer 1.3.2).
+        assert_eq!(args[i + 1], "hostfs,home,cwd");
         let pwd_idx = args.iter().position(|a| a == "--pwd").unwrap();
         assert_eq!(
             args[pwd_idx + 1],
             "/",
             "--pwd must target / to avoid FATAL on fresh overlays"
         );
-        assert!(!args.contains(&"--home".to_string()));
+        // --no-home is not enough on its own and is no longer used.
+        assert!(!args.contains(&"--no-home".to_string()));
     }
 
     #[test]
-    fn test_mount_home_skips_no_home() {
-        let paths = test_paths();
-        let overlay = test_overlay();
-        let mut config = test_config();
-        config.enter.mount_home = true;
+    fn test_host_isolation_applies_to_sandbox_mode_too() {
+        let config = test_config();
+        let dir = PathBuf::from("/data/na/sandbox");
         let opts = ContainerOpts {
-            target: overlay_target(&paths, &overlay),
+            target: ContainerTarget::Sandbox { dir: &dir },
             config: &config,
             nv: false,
             rocm: false,
@@ -403,8 +445,8 @@ mod tests {
             passthrough: &[],
             quiet: false,
         };
-        let args = build_apptainer_args(&opts, ContainerMode::Run);
-        assert!(!args.contains(&"--no-home".to_string()));
+        let args = build_apptainer_args(&opts, ContainerMode::Exec);
+        assert!(args.contains(&"hostfs,home,cwd".to_string()));
     }
 
     #[test]

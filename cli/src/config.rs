@@ -97,10 +97,6 @@ pub struct EnterConfig {
     /// Suppress apptainer stderr warnings
     #[serde(default)]
     pub quiet: bool,
-    /// Mount host $HOME into the container (default: false).
-    /// When false, the container uses an isolated home directory in the overlay.
-    #[serde(default)]
-    pub mount_home: bool,
     /// Container-side paths to pre-create in the sandbox so site-configured
     /// apptainer binds (bind path / hostfs) have mount points. We never
     /// mount these ourselves — the site's apptainer.conf does. Only used in
@@ -308,27 +304,6 @@ type = "directory"
         .unwrap();
         let config = Config::load(f.path()).unwrap();
         assert_eq!(config.overlay.overlay_type, OverlayType::Directory);
-    }
-
-    #[test]
-    fn test_mount_home_default_false() {
-        let config = Config::default();
-        assert!(!config.enter.mount_home);
-    }
-
-    #[test]
-    fn test_mount_home_from_toml() {
-        let mut f = NamedTempFile::new().unwrap();
-        writeln!(
-            f,
-            r#"
-[enter]
-mount_home = true
-"#
-        )
-        .unwrap();
-        let config = Config::load(f.path()).unwrap();
-        assert!(config.enter.mount_home);
     }
 
     #[test]
