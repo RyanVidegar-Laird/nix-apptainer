@@ -48,6 +48,7 @@ pub struct ReleaseInfo {
     pub sif_url: String,
     pub sif_asset_name: String,
     pub sha256_url: Option<String>,
+    pub signing_key_url: Option<String>,
 }
 
 /// Return the Nix-style platform string for the current system (e.g. "x86_64-linux").
@@ -93,11 +94,17 @@ pub fn parse_release_response(resp: &serde_json::Value) -> anyhow::Result<Releas
         .find(|a| a["name"].as_str().is_some_and(|n| n == expected_sha_name))
         .and_then(|a| a["browser_download_url"].as_str().map(|s| s.to_string()));
 
+    let signing_key_url = assets
+        .iter()
+        .find(|a| a["name"].as_str().is_some_and(|n| n == "signing-key.asc"))
+        .and_then(|a| a["browser_download_url"].as_str().map(|s| s.to_string()));
+
     Ok(ReleaseInfo {
         tag,
         sif_url,
         sif_asset_name,
         sha256_url,
+        signing_key_url,
     })
 }
 
@@ -201,6 +208,31 @@ pub fn copy_local_sif(src: &str, dest: &Path) -> anyhow::Result<Sha256Digest> {
     pb.finish_and_clear();
 
     Ok(Sha256Digest::from_hasher(hasher))
+}
+
+/// Download the release's signing key and import it into apptainer's local
+/// keyring so `apptainer build --sandbox` can verify the SIF's embedded
+/// signature (it otherwise 404s against a keyserver and warns). Callers
+/// treat failure as a warning — SHA256 verification already gated integrity.
+pub fn import_signing_key(
+    sys: &dyn crate::system::System,
+    apptainer: &str,
+    url: &str,
+    scratch_dir: &Path,
+) -> anyhow::Result<()> {
+    fs::create_dir_all(scratch_dir)?;
+    let key_path = scratch_dir.join("signing-key.asc");
+    download_file(url, &key_path)?;
+    let key_str = key_path.to_string_lossy();
+    let out = sys.run_command_capture(apptainer, &["key", "import", key_str.as_ref()])?;
+    let _ = fs::remove_file(&key_path);
+    if !out.status.success() {
+        bail!(
+            "apptainer key import failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(())
 }
 
 /// Verify a SHA256 digest against a SHA256SUMS file.
@@ -380,6 +412,29 @@ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  nix-apptainer-
         });
         let info = parse_release_response(&json).unwrap();
         assert!(info.sha256_url.is_none());
+        assert!(info.signing_key_url.is_none());
+    }
+
+    #[test]
+    fn test_parse_release_response_signing_key() {
+        let json = serde_json::json!({
+            "tag_name": "v0.7.1",
+            "assets": [
+                {
+                    "name": format!("base-nixos-{}.sif", current_arch()),
+                    "browser_download_url": "https://example.com/base.sif"
+                },
+                {
+                    "name": "signing-key.asc",
+                    "browser_download_url": "https://example.com/signing-key.asc"
+                }
+            ]
+        });
+        let info = parse_release_response(&json).unwrap();
+        assert_eq!(
+            info.signing_key_url.as_deref(),
+            Some("https://example.com/signing-key.asc")
+        );
     }
 
     #[test]

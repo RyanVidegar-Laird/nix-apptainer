@@ -21,7 +21,10 @@ pub struct InitFlags {
 }
 
 /// Fetch or copy a SIF image based on the source configuration.
-fn fetch_sif(source: &SifSource, paths: &AppPaths) -> anyhow::Result<(String, Sha256Digest)> {
+fn fetch_sif(
+    source: &SifSource,
+    paths: &AppPaths,
+) -> anyhow::Result<(String, Sha256Digest, Option<String>)> {
     match source {
         SifSource::GitHub { repo } => {
             println!("Fetching latest release from {repo}...");
@@ -45,19 +48,19 @@ fn fetch_sif(source: &SifSource, paths: &AppPaths) -> anyhow::Result<(String, Sh
                 }
             }
 
-            Ok((release.tag, hash))
+            Ok((release.tag, hash, release.signing_key_url))
         }
         SifSource::Url { url } => {
             println!("Downloading SIF from {url}...");
             let hash = sif::download_file(url, &paths.sif_path)?;
             println!("  SHA256: {hash}");
-            Ok(("custom".to_string(), hash))
+            Ok(("custom".to_string(), hash, None))
         }
         SifSource::Local { path } => {
             println!("Copying SIF from {path}...");
             let hash = sif::copy_local_sif(path, &paths.sif_path)?;
             println!("  SHA256: {hash}");
-            Ok(("local".to_string(), hash))
+            Ok(("local".to_string(), hash, None))
         }
     }
 }
@@ -289,7 +292,7 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
     };
 
     // --- Fetch SIF ---
-    let (version, hash) = fetch_sif(&sif_source, &paths)?;
+    let (version, hash, signing_key_url) = fetch_sif(&sif_source, &paths)?;
 
     // --- Overlay ---
     let ext3_size_mb = match overlay_type {
@@ -360,6 +363,18 @@ pub fn run(flags: InitFlags) -> anyhow::Result<()> {
             }
         }
         OverlayType::Sandbox => {
+            // Before any unpack: without the key in the local keyring,
+            // `apptainer build --sandbox` 404s against a keyserver and warns
+            // that the image could not be verified.
+            if let Some(ref key_url) = signing_key_url {
+                println!("Importing image signing key...");
+                if let Err(e) =
+                    crate::sif::import_signing_key(&sys, &apptainer, key_url, &paths.cache_dir)
+                {
+                    eprintln!("  Warning: {e}");
+                    eprintln!("  The unpack will show a benign verification warning.");
+                }
+            }
             if paths.sandbox_dir.exists() {
                 let should_recreate = if flags.yes {
                     true

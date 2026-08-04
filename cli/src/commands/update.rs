@@ -100,6 +100,13 @@ pub fn run(flags: UpdateFlags) -> anyhow::Result<()> {
         let sys = RealSystem;
         let apptainer =
             checks::apptainer_binary(&sys).context("apptainer/singularity not found")?;
+        if let Some(ref key_url) = release.signing_key_url {
+            println!("Importing image signing key...");
+            if let Err(e) = sif::import_signing_key(&sys, &apptainer, key_url, &paths.cache_dir) {
+                eprintln!("  Warning: {e}");
+                eprintln!("  The unpack will show a benign verification warning.");
+            }
+        }
         println!("Re-unpacking sandbox directory (this can take several minutes)...");
         sandbox::create_sandbox(&sys, &apptainer, &paths.sif_path, &paths.sandbox_dir)?;
         // Re-unpack wipes the tree, so the configured mount points have to be
