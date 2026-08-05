@@ -68,7 +68,23 @@ base-nixos.sif (read-only)     overlay (writable)
          └──── overlayfs merge ────┘
 ```
 
-By default, the host `$HOME` is **not** mounted into the container. The container gets its own home directory inside the overlay, preventing conflicts with host dotfiles and home-manager configurations. Use `--bind` to expose specific host directories (project dirs, scratch, data) as needed. Set `mount_home = true` in `config.toml` to mount the host home instead.
+The container is **isolated from the host filesystem by default**, in every
+storage mode: not your `$HOME`, not the directory you launched from, not the
+filesystems your site mounts automatically. You opt back in per path.
+
+`init` discovers what your site would otherwise mount and offers the list.
+It measures this rather than reading `apptainer.conf`, because
+`mount hostfs = yes` means "mount every host filesystem" and has no list to
+read: `init` runs a throwaway container twice, isolated and with site
+defaults, and diffs the mount targets. Only targets are read, so NFS server
+names never reach your config file. Picks are recorded as ordinary binds:
+
+```toml
+[enter]
+bind = ["/datastore:/datastore", "/scratch:/scratch"]
+```
+
+Your host home is just another path — opt into it the same way.
 
 ## Storage modes
 
@@ -98,17 +114,15 @@ detecting the buggy bundled fuse-overlayfs on old apptainer installs.
 
 ### Site bind mounts in sandbox mode
 
-In sandbox mode apptainer cannot create missing mount points, so binds from
-the site's `apptainer.conf` are skipped and that data is invisible in the
-container. `init` discovers these by launching a throwaway `--writable`
-container and reading apptainer's own mount warnings — nothing is hardcoded,
-the list comes entirely from your site's configuration — then lets you pick
-which to create and records them (paths below are illustrative):
+In sandbox mode apptainer cannot create missing mount points, so a bind whose
+destination does not exist is silently skipped. Destinations of `bind` and
+`mount` entries are seeded for you; `mount_points` covers the remaining case —
+`bind path` entries in the site's `apptainer.conf`, which nix-apptainer does
+not mount itself and cannot see in the config (paths below are illustrative):
 
 ```toml
 [enter]
-# Paths created inside the sandbox so site-configured binds succeed.
-# nix-apptainer never mounts these itself — the site's apptainer.conf does.
+# Paths created inside the sandbox so the site's own binds succeed.
 mount_points = ["/datastore", "/share"]
 
 # Mounts nix-apptainer passes itself:
@@ -165,12 +179,11 @@ ext3_size_mb = 51200                 # sparse overlay size in MB (ext3 only)
 
 [enter]
 gpu = "nvidia"                       # "", "nvidia", or "rocm"
-bind = ["/scratch:/scratch", "/data:/data"]
+bind = ["/datastore:/datastore"]     # host paths to mount (init discovers candidates)
 mount = ["type=bind,source=/data,dest=/mnt,ro"]  # long-form --mount (Apptainer >= 1.1)
 mount_points = ["/datastore"]        # paths created so site-configured binds succeed
 tmpdir = ""                          # container TMPDIR; empty inherits the host's
 quiet = false                        # suppress apptainer stderr warnings
-mount_home = false                   # true to bind-mount host $HOME (default: false)
 ```
 
 
