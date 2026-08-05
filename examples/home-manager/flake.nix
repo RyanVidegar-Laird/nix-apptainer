@@ -39,9 +39,8 @@
                   gd = "git diff";
                 };
               };
-              # No chsh in a container (apptainer generates /etc/passwd
-              # from the host), so the container always starts bash; hand
-              # interactive sessions to fish with $SHELL set correctly.
+              # chsh can't work in a container; hand interactive
+              # sessions from bash to fish with $SHELL set.
               programs.bash = {
                 enable = true;
                 initExtra = ''

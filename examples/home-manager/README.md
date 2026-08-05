@@ -64,9 +64,8 @@ config: git, direnv, and fzf, with fish as the interactive shell and
                   gd = "git diff";
                 };
               };
-              # No chsh in a container (apptainer generates /etc/passwd
-              # from the host), so the container always starts bash; hand
-              # interactive sessions to fish with $SHELL set correctly.
+              # chsh can't work in a container; hand interactive
+              # sessions from bash to fish with $SHELL set.
               programs.bash = {
                 enable = true;
                 initExtra = ''
@@ -107,12 +106,9 @@ to `aarch64-linux`.
 - **`home.username` / `home.homeDirectory`** read `$USER` and `$HOME`
   at activation, so one config works with whatever account each cluster
   gives you. This is why activation needs `--impure`.
-- **fish handoff**: `chsh` can't work in the container (apptainer
-  generates `/etc/passwd` from the host), so the container always
-  starts bash and the small `programs.bash` block replaces interactive
-  sessions with fish — with `$SHELL` set to fish's store path so tmux
-  and scripts that consult it agree. Delete the block if you prefer
-  bash.
+- **fish handoff**: `chsh` can't work here (apptainer generates
+  `/etc/passwd` from the host), so bash starts and hands interactive
+  sessions to fish with `$SHELL` set. Delete the block to keep bash.
 
 ## Activate
 

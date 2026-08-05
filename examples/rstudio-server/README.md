@@ -1,8 +1,7 @@
 # RStudio Server Example
 
-Run your own RStudio Server inside nix-apptainer and use it from your
-laptop's browser through an SSH tunnel. No root, no site install —
-each user runs a private server on a login/compute node.
+Run a private, unprivileged RStudio Server inside nix-apptainer and
+use it from your laptop's browser through an SSH tunnel.
 
 ## Usage
 
@@ -36,16 +35,14 @@ Log in with your cluster username and the printed password.
 
 ## Why a password?
 
-`rserver` listens on `127.0.0.1` only — but on a shared login node,
-*every* user on that node can reach localhost ports. The password
-(rocker-style pam-helper) keeps your session yours. Don't run with
-auth disabled on shared machines.
+`rserver` listens on `127.0.0.1` only, but on a shared node every
+local user can reach localhost ports — the password keeps your
+session yours.
 
 ## State
 
-Everything lives under `~/.local/share/rstudio-server` (session data,
-sqlite database, cookie key), so sessions persist across container
-restarts and nothing touches system paths.
+Everything lives under `~/.local/share/rstudio-server`, so sessions
+persist across container restarts and nothing touches system paths.
 
 ## Adding R packages
 
@@ -67,8 +64,7 @@ Then restart: `exit` the dev shell, `nix develop`, `rstudio-start`.
 ## About the nixpkgs pin
 
 `flake.nix` pins `nixos-26.05` to match the container image's nixpkgs
-release. Check the container's release with
-`nix eval --raw nixpkgs#lib.trivial.release` and keep the pin in sync
-when you update the base image.
-
-On ARM clusters, change `x86_64-linux` to `aarch64-linux` in `flake.nix`.
+release (check inside the container:
+`nix eval --raw nixpkgs#lib.trivial.release`); keep it in sync when
+you update the base image. On ARM clusters, change `x86_64-linux` to
+`aarch64-linux`.

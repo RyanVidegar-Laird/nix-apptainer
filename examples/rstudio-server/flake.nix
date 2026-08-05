@@ -12,8 +12,7 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
 
-      # rserver/rsession wrapped so the R environment below is what
-      # sessions see. Add R packages here.
+      # rserver/rsession with the R packages below on the session path.
       rstudio = pkgs.rstudioServerWrapper.override {
         packages = with pkgs.rPackages; [
           dplyr
@@ -22,9 +21,8 @@
         ];
       };
 
-      # Auth helper (rocker pattern): rserver invokes it with the
-      # username as argv[1] and the submitted password on stdin;
-      # exit 0 accepts the login.
+      # rserver runs this with the submitted password on stdin;
+      # exit 0 accepts the login (rocker pattern).
       pamHelper = pkgs.writeShellScript "rstudio-pam-helper" ''
         IFS= read -r password
         [ -n "''${RSTUDIO_PASSWORD:-}" ] && [ "$password" = "$RSTUDIO_PASSWORD" ]
@@ -45,10 +43,9 @@
           (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
         }
 
-        # RSTUDIO_PORT unset or "auto": scan from 8787 upward.
-        # Numeric: use exactly that port, and fail if busy — an
-        # explicit port usually means a tunnel is already set up
-        # for it, so silently moving would break it.
+        # RSTUDIO_PORT unset/"auto": scan from 8787. Numeric: use
+        # exactly that port, failing if busy (don't break a tunnel
+        # that's already set up for it).
         choice="''${RSTUDIO_PORT:-auto}"
         if [ "$choice" = auto ]; then
           port=""
@@ -67,8 +64,7 @@
           fi
         fi
 
-        # head reads exactly 30 bytes and exits 0 — no SIGPIPE issues
-        # under pipefail (never put head downstream of tr/urandom).
+        # head first: no SIGPIPE under pipefail.
         if [ -z "''${RSTUDIO_PASSWORD:-}" ]; then
           RSTUDIO_PASSWORD="$(head -c 30 /dev/urandom | base64 | tr -d '+/=' | cut -c1-20)"
         fi
