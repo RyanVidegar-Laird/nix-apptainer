@@ -25,7 +25,7 @@
       perSystem =
         { pkgs, system, ... }:
         let
-          version = "0.7.1";
+          version = "0.8.0";
 
           nixos = nixpkgs.lib.nixosSystem {
             inherit system;
