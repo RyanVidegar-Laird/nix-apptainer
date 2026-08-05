@@ -41,38 +41,43 @@ config: git, direnv, and fzf, with fish as the interactive shell and
       homeConfigurations.container =
         home-manager.lib.homeManagerConfiguration {
           inherit pkgs;
-          modules = [{
-            home.stateVersion = "26.05";
-            home.username =
-              let u = builtins.getEnv "USER";
-              in if u == "" then "nobody" else u;
-            home.homeDirectory =
-              let h = builtins.getEnv "HOME";
-              in if h == "" then "/homeless-shelter" else h;
+          modules = [
+            ({ pkgs, ... }: {
+              home.stateVersion = "26.05";
+              home.username =
+                let u = builtins.getEnv "USER";
+                in if u == "" then "nobody" else u;
+              home.homeDirectory =
+                let h = builtins.getEnv "HOME";
+                in if h == "" then "/homeless-shelter" else h;
 
-            programs.git.enable = true;
-            programs.direnv.enable = true;
-            programs.fzf.enable = true;
+              programs.git.enable = true;
+              programs.direnv.enable = true;
+              programs.fzf.enable = true;
 
-            # fish as the interactive shell, with a few git shortcuts
-            programs.fish = {
-              enable = true;
-              shellAbbrs = {
-                gs = "git status";
-                ga = "git add";
-                gd = "git diff";
+              # fish as the interactive shell, with a few git shortcuts
+              programs.fish = {
+                enable = true;
+                shellAbbrs = {
+                  gs = "git status";
+                  ga = "git add";
+                  gd = "git diff";
+                };
               };
-            };
-            # The container always starts bash; hand off interactive
-            # sessions to fish (chsh isn't available here).
-            programs.bash = {
-              enable = true;
-              initExtra = ''
-                if [[ $- == *i* ]]; then exec fish; fi
-              '';
-            };
-            # Add your preferred tools here
-          }];
+              # No chsh in a container (apptainer generates /etc/passwd
+              # from the host), so the container always starts bash; hand
+              # interactive sessions to fish with $SHELL set correctly.
+              programs.bash = {
+                enable = true;
+                initExtra = ''
+                  if [[ $- == *i* ]]; then
+                    exec env SHELL=${pkgs.fish}/bin/fish ${pkgs.fish}/bin/fish -l
+                  fi
+                '';
+              };
+              # Add your preferred tools here
+            })
+          ];
         };
     };
 }
@@ -102,9 +107,12 @@ to `aarch64-linux`.
 - **`home.username` / `home.homeDirectory`** read `$USER` and `$HOME`
   at activation, so one config works with whatever account each cluster
   gives you. This is why activation needs `--impure`.
-- **fish handoff**: the container always starts bash; the small
-  `programs.bash` block replaces interactive bash sessions with fish.
-  Delete it if you prefer bash.
+- **fish handoff**: `chsh` can't work in the container (apptainer
+  generates `/etc/passwd` from the host), so the container always
+  starts bash and the small `programs.bash` block replaces interactive
+  sessions with fish — with `$SHELL` set to fish's store path so tmux
+  and scripts that consult it agree. Delete the block if you prefer
+  bash.
 
 ## Activate
 
