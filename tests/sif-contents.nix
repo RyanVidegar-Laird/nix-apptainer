@@ -88,6 +88,20 @@ runCommand "nix-apptainer-test-sif"
       fi
     done
 
+    # --- Baked store files must be canonical (no owner-write) ---
+    # Nix's optimiser skips any S_IWUSR regular file ("skipping
+    # suspicious writable file"), so writable baked files make
+    # `nix store optimise` warn per-file and never deduplicate the
+    # closure in the unpacked (sandbox-mode) store.
+    echo ""
+    echo "Checking canonical store file modes..."
+    find extracted/nix/store -type f -perm -u+w > writable-files.txt
+    if [ -s writable-files.txt ]; then
+      head -5 writable-files.txt
+      fail "owner-writable files under nix/store ($(wc -l < writable-files.txt) total)"
+    fi
+    pass "no owner-writable files under nix/store"
+
     echo ""
     # --- Unpacked-size metadata object ---
     echo ""

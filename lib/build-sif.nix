@@ -53,25 +53,38 @@ let
         # squashfs root. When mksquashfs receives a single directory, it
         # unwraps it and makes the directory's contents the fs root.
         mkdir rootfs
-        cp -a ${sandbox}/. rootfs/
+        # --no-preserve=links: if the build host's store is optimised,
+        # identical files (e.g. every empty file) share one inode across
+        # the whole sandbox — store closure and /nix/var/nix seed alike.
+        # Preserving that structure lets the per-tree chmods below bleed
+        # into each other through shared inodes (and makes the result
+        # depend on the builder's store state). Stage unlinked; the
+        # `hardlink` step below re-links within nix/store only.
+        cp -a --no-preserve=links ${sandbox}/. rootfs/
 
-        # Make the whole tree owner-writable. Nix store outputs are read-only
-        # (mode 555), which breaks both runtime modes:
-        #   - overlay modes: fuse-overlayfs can't create upper-layer entries
-        #   - sandbox mode: `apptainer build --sandbox` writes into the
-        #     unpacked tree (.singularity.d/actions, env/*.sh, runscript) and
-        #     `--writable` sessions write anywhere
-        # Enumerating paths here encodes an overlay-mode assumption — that only
-        # the paths we anticipate need writes. `--writable` inverts that: the
-        # runtime owns the whole tree.
+        # Permission invariant: DIRECTORIES owner-writable, store FILES
+        # canonical (444/555).
         #
-        # Security note: this makes /nix/store writable, matching the trust
-        # model of single-user Nix (no daemon, user owns the store). The base
-        # squashfs remains immutable in overlay modes. Nix's content-addressing
-        # and signature verification still protect against substituter-level
-        # tampering. A user could modify their own store paths, but that only
-        # affects their own environment.
+        # Dirs need u+w so fuse-overlayfs can create upper-layer entries
+        # (overlay modes) and so `apptainer build --sandbox` unpacks and
+        # `--writable` sessions can create/delete entries anywhere
+        # (sandbox mode). Non-store files (.singularity.d, /etc) keep
+        # u+w too — apptainer's unpack overwrites some of them in place.
+        #
+        # Store files must NOT be owner-writable: Nix's optimiser skips
+        # any S_IWUSR file as "suspicious", so a writable baked closure
+        # makes `nix store optimise` warn per-file and never deduplicate
+        # it. cp -a preserved the store's 444/555 modes; u+w then u-w on
+        # files restores exactly those. New store paths built inside the
+        # container are canonicalised by Nix itself. (In overlay modes
+        # optimise copies lower files up and grows the overlay — see
+        # docs/troubleshooting.md; sandbox mode is where it works.)
+        #
+        # Security note: writable dirs match the trust model of
+        # single-user Nix (no daemon, user owns the store). The base
+        # squashfs remains immutable in overlay modes.
         chmod -R u+w rootfs
+        find rootfs/nix/store -type f -exec chmod u-w {} +
 
         # Some fuse-overlayfs versions report EPERM from access(path, W_OK)
         # on 755 dirs even when owned by the caller. Nix checks this on
