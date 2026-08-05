@@ -189,6 +189,16 @@ pkgs.testers.runNixOSTest {
         machine.succeed(as_testuser("test -d $NIX_APPTAINER_HOME/overlay/upper", nix_apptainer_home=P1_HOME))
         machine.succeed(as_testuser("test -d $NIX_APPTAINER_HOME/overlay/work", nix_apptainer_home=P1_HOME))
 
+    with subtest("Phase 1: host home is not visible in directory-overlay mode"):
+        # Isolation is unconditional in every storage mode, not just sandbox.
+        machine.succeed("touch /home/testuser/.na-marker-p1")
+        out = machine.succeed(as_testuser(
+            'nix-apptainer exec -- /bin/sh -c '
+            '"test -e /home/testuser/.na-marker-p1 && echo VISIBLE || echo isolated"',
+            nix_apptainer_home=P1_HOME,
+        ))
+        assert "isolated" in out, f"host home leaked into the container: {out}"
+
     with subtest("Phase 1: DB preseed populated the store"):
         assert_db_populated(phase="phase1-directory-init", home=P1_HOME)
 
@@ -349,6 +359,17 @@ pkgs.testers.runNixOSTest {
             nix_apptainer_home=P6_HOME,
         ))
         assert "sandbox-ok" in out, f"Expected sandbox-ok in: {out}"
+
+    with subtest("Phase 6: host home is not visible in the container"):
+        # Literal path, not $HOME: the su -c shell would expand $HOME on the
+        # host before the container ever sees it.
+        machine.succeed("touch /home/testuser/.na-marker")
+        out = machine.succeed(as_testuser(
+            'nix-apptainer exec -- /bin/sh -c '
+            '"test -e /home/testuser/.na-marker && echo VISIBLE || echo isolated"',
+            nix_apptainer_home=P6_HOME,
+        ))
+        assert "isolated" in out, f"host home leaked into the container: {out}"
 
     with subtest("Phase 6: status reports sandbox mode"):
         out = machine.succeed(as_testuser("nix-apptainer status", nix_apptainer_home=P6_HOME))
